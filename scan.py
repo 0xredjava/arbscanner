@@ -2,9 +2,9 @@
 """Sports betting arbitrage scanner — CLI entry point.
 
 Usage:
-    python main.py                  # Run continuous scan loop
-    python main.py --once           # Single scan cycle
-    python main.py --platforms polymarket,cloudbet
+    python scan.py                  # Run continuous scan loop
+    python scan.py --once           # Single scan cycle
+    python scan.py --platforms polymarket,cloudbet
 """
 
 from __future__ import annotations

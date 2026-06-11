@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "pip install -r requirements-vercel.txt",
+  "functions": {
+    "api/**/*.py": {
+      "excludeFiles": "{scrapers/**,executor/**,matcher/**,normalizer/**,calculator/**,notifier/**,utils/**,config/**,models/**,dashboard.py,scan.py,orchestrator.py,**/__pycache__/**,**/*.pyc,tests/**,data/**,.env*,venv/**}"
+    }
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/api" }
+  ]
+}

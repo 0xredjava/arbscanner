@@ -6,7 +6,7 @@ A modular, async Python scanner that detects arbitrage opportunities across **Po
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         main.py / dashboard.py                  │
+│                         scan.py / dashboard.py                  │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
@@ -71,17 +71,17 @@ Edit `.env` — at minimum, set your watched sports and min profit threshold. Fo
 
 **Single scan (recommended first run):**
 ```bash
-python main.py --once --platforms polymarket,cloudbet
+python scan.py --once --platforms polymarket,cloudbet
 ```
 
 **Continuous polling:**
 ```bash
-python main.py
+python scan.py
 ```
 
 **Polymarket only:**
 ```bash
-python main.py --once --platforms polymarket --min-profit 1.5
+python scan.py --once --platforms polymarket --min-profit 1.5
 ```
 
 **Streamlit dashboard:**
@@ -214,7 +214,7 @@ See `scrapers/polymarket.py` for the full integration and `create_polymarket_cli
 
 ```
 arb-scanner/
-├── main.py                 # CLI entry point
+├── scan.py                 # CLI entry point
 ├── dashboard.py            # Streamlit UI
 ├── orchestrator.py         # Scan loop coordinator
 ├── config/settings.py      # Pydantic settings from .env
