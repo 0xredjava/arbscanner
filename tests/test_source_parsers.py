@@ -33,6 +33,36 @@ def test_cloudbet_documented_market_shape():
     assert [outcome.name for outcome in events[0].outcomes] == ["Miami Heat", "Los Angeles Lakers"]
 
 
+def test_cloudbet_current_competition_response_and_league_filter():
+    scraper = CloudbetScraper(settings(), None, None)
+    fixture_event = load("cloudbet_events.json")["events"][0]
+    data = {
+        "competitions": [
+            {
+                "name": "WNBA",
+                "key": "basketball-usa-wnba",
+                "events": [fixture_event],
+            },
+            {
+                "name": "NBA",
+                "key": "basketball-usa-nba",
+                "events": [fixture_event],
+            },
+            {
+                "name": "Simulated Reality League NBA",
+                "key": "basketball-simulated-reality-league-nba",
+                "events": [fixture_event],
+            },
+        ]
+    }
+
+    events = scraper._parse_response(data, Sport.NBA, "basketball-usa-nba")
+
+    assert len(events) == 1
+    assert events[0].league == "NBA"
+    assert len(scraper._parse_response(data, Sport.NBA)) == 2
+
+
 def test_spt_provider_parses_three_way_market():
     fixture = load("spt_event.json")
     scraper = BCGameScraper(settings(), None, None)

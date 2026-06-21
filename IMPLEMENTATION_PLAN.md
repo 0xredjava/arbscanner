@@ -240,12 +240,12 @@ For each platform formally approved for Playwright:
 | Platform | Research | Selected source | Parser | Tests | Local validation | Production validation |
 |---|---|---|---|---|---|---|
 | Polymarket | Complete | Gamma keyset + CLOB | Native | Fixture + live smoke | Complete bounded pagination | Production |
-| Cloudbet | Complete | Official keyed Feed API | Native | Official fixture | Key required | Pending key |
-| Stake | Complete | No acceptable source | Unavailable state | Health-state coverage | Unavailable by policy | Pending rollout |
-| BC.Game | Complete | Public provider REST feed | Native | Fixture + live smoke | 392 events | Pending rollout |
-| Shuffle | Complete | Public first-party GraphQL | Native | Fixture + live smoke | 70 events | Pending rollout |
-| TG.Casino | Complete | Public provider REST feed | Native | Shared fixture + live smoke | 484 events | Pending rollout |
-| Thunderpick | Complete | Public same-origin REST | Native | Fixture + regression | 227 events | Pending rollout |
+| Cloudbet | Complete | Official keyed Feed API | Native | Fixture + authenticated live smoke | 86 events | Production |
+| Stake | Complete | No acceptable source | Unavailable state | Health-state coverage | Unavailable by policy | Production unavailable (expected) |
+| BC.Game | Complete | Public provider REST feed | Native | Fixture + live smoke | 389 events | Production healthy |
+| Shuffle | Complete | Public first-party GraphQL | Native | Fixture + live smoke | 67 events | Production healthy |
+| TG.Casino | Complete | Public provider REST feed | Native | Shared fixture + live smoke | 472 events | Production healthy |
+| Thunderpick | Complete | Public same-origin REST | Native | Fixture + regression | 230 events | Production healthy |
 
 ## Session handoff — 2026-06-21
 
