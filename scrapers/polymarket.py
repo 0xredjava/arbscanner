@@ -52,6 +52,8 @@ SPORT_KEYWORDS: dict[Sport, list[str]] = {
     Sport.MLB: ["mlb", "baseball"],
 }
 
+MAX_KEYSET_PAGES = 20
+
 
 class PolymarketScraper(BaseScraper):
     platform = Platform.POLYMARKET
@@ -85,7 +87,7 @@ class PolymarketScraper(BaseScraper):
     async def _fetch_events_keyset(self, tag_id: int) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         cursor: str | None = None
-        for page in range(5):
+        for page in range(MAX_KEYSET_PAGES):
             now = datetime.now(timezone.utc)
             params: dict[str, Any] = {
                 "tag_id": tag_id,
@@ -104,8 +106,10 @@ class PolymarketScraper(BaseScraper):
             cursor = data.get("next_cursor")
             if not cursor:
                 break
-            if page == 4:
-                self.degraded_reason = f"Polymarket tag {tag_id} exceeded five keyset pages"
+            if page == MAX_KEYSET_PAGES - 1:
+                self.degraded_reason = (
+                    f"Polymarket tag {tag_id} exceeded {MAX_KEYSET_PAGES} keyset pages"
+                )
         return results
 
     async def _fetch_sports_metadata(self) -> list[dict[str, Any]]:

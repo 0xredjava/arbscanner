@@ -11,7 +11,7 @@ from orchestrator import ArbOrchestrator
 from scrapers.base import SourceStatusError
 from scrapers.bcgame import BCGameScraper
 from scrapers.cloudbet import CloudbetScraper
-from scrapers.polymarket import PolymarketScraper
+from scrapers.polymarket import MAX_KEYSET_PAGES, PolymarketScraper
 from scrapers.shuffle import ShuffleScraper
 from scrapers.thunderpick import ThunderpickScraper
 
@@ -73,6 +73,44 @@ def test_polymarket_combines_binary_yes_tokens_into_1x2():
         "New England Revolution", "Houston Dynamo", "Draw"
     }
     assert {outcome.token_id for outcome in event.outcomes} == {"home-yes", "away-yes", "draw-yes"}
+
+
+class KeysetHttp:
+    def __init__(self, page_count):
+        self.page_count = page_count
+        self.calls = 0
+
+    async def get(self, _url, params=None):
+        self.calls += 1
+        return {
+            "events": [{"id": f"event-{self.calls}"}],
+            "next_cursor": (
+                f"cursor-{self.calls}" if self.calls < self.page_count else None
+            ),
+        }
+
+
+def test_polymarket_keyset_completes_six_pages_without_degradation():
+    http = KeysetHttp(page_count=6)
+    scraper = PolymarketScraper(settings(), http, None)
+
+    events = asyncio.run(scraper._fetch_events_keyset(100350))
+
+    assert len(events) == 6
+    assert scraper.response_count == 6
+    assert scraper.degraded_reason is None
+
+
+def test_polymarket_keyset_reports_bounded_truncation():
+    http = KeysetHttp(page_count=MAX_KEYSET_PAGES + 1)
+    scraper = PolymarketScraper(settings(), http, None)
+
+    events = asyncio.run(scraper._fetch_events_keyset(100350))
+
+    assert len(events) == MAX_KEYSET_PAGES
+    assert scraper.degraded_reason == (
+        f"Polymarket tag 100350 exceeded {MAX_KEYSET_PAGES} keyset pages"
+    )
 
 
 def future_event():

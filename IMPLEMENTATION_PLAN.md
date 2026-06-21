@@ -239,7 +239,7 @@ For each platform formally approved for Playwright:
 
 | Platform | Research | Selected source | Parser | Tests | Local validation | Production validation |
 |---|---|---|---|---|---|---|
-| Polymarket | Complete | Gamma keyset + CLOB | Native | Fixture + live smoke | 82 events; degraded pagination | Pending rollout |
+| Polymarket | Complete | Gamma keyset + CLOB | Native | Fixture + live smoke | Complete bounded pagination | Production |
 | Cloudbet | Complete | Official keyed Feed API | Native | Official fixture | Key required | Pending key |
 | Stake | Complete | No acceptable source | Unavailable state | Health-state coverage | Unavailable by policy | Pending rollout |
 | BC.Game | Complete | Public provider REST feed | Native | Fixture + live smoke | 392 events | Pending rollout |
