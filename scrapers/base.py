@@ -19,6 +19,7 @@ logger = logging.getLogger("arb_scanner.scrapers")
 class BaseScraper(abc.ABC):
     platform: Platform
     fee_pct: float = 2.0
+    fetch_method: str = "api"
 
     def __init__(
         self,

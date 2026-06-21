@@ -4,7 +4,7 @@ Public endpoints (no auth required for market data):
 - Gamma: https://gamma-api.polymarket.com
 - CLOB:  https://clob.polymarket.com
 
-For order placement, use py-clob-client with wallet credentials.
+This scanner uses public market-data endpoints only. It does not place orders.
 """
 
 from __future__ import annotations
@@ -282,38 +282,3 @@ class PolymarketScraper(BaseScraper):
             if any(kw in text for kw in keywords):
                 return sport
         return Sport.OTHER
-
-
-# ---------------------------------------------------------------------------
-# Example: placing orders with py-clob-client (live execution only)
-# ---------------------------------------------------------------------------
-def create_polymarket_client(settings: Settings):
-    """Instantiate authenticated CLOB client for live trading.
-
-    Requires: pip install py-clob-client
-    Set POLYMARKET_PRIVATE_KEY and API credentials in .env
-    """
-    try:
-        from py_clob_client.client import ClobClient
-    except ImportError as exc:
-        raise ImportError("Install py-clob-client: pip install py-clob-client") from exc
-
-    if not settings.polymarket_private_key:
-        raise ValueError("POLYMARKET_PRIVATE_KEY required for live trading")
-
-    client = ClobClient(
-        host=settings.polymarket_clob_url,
-        key=settings.polymarket_private_key,
-        chain_id=137,  # Polygon
-        signature_type=1,
-        funder=settings.polymarket_api_key or None,
-    )
-    if settings.polymarket_api_key:
-        client.set_api_creds(
-            client.create_or_derive_api_creds(
-                settings.polymarket_api_key,
-                settings.polymarket_api_secret,
-                settings.polymarket_api_passphrase,
-            )
-        )
-    return client

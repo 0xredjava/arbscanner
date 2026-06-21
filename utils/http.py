@@ -32,13 +32,12 @@ class AsyncHttpClient:
     ) -> Any:
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
-            proxies = self.proxy_rotator.httpx_proxy() if self.proxy_rotator else None
+            proxy = self.proxy_rotator.next() if self.proxy_rotator else None
             try:
-                async with httpx.AsyncClient(
-                    timeout=self.timeout,
-                    proxies=proxies,
-                    follow_redirects=True,
-                ) as client:
+                kwargs: dict[str, Any] = {"timeout": self.timeout, "follow_redirects": True}
+                if proxy:
+                    kwargs["proxy"] = proxy
+                async with httpx.AsyncClient(**kwargs) as client:
                     response = await client.get(url, params=params, headers=headers)
                     if response.status_code == 429:
                         wait = min(2**attempt, 30)
@@ -66,8 +65,11 @@ class AsyncHttpClient:
         json: dict[str, Any] | list[Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
-        proxies = self.proxy_rotator.httpx_proxy() if self.proxy_rotator else None
-        async with httpx.AsyncClient(timeout=self.timeout, proxies=proxies) as client:
+        proxy = self.proxy_rotator.next() if self.proxy_rotator else None
+        kwargs: dict[str, Any] = {"timeout": self.timeout}
+        if proxy:
+            kwargs["proxy"] = proxy
+        async with httpx.AsyncClient(**kwargs) as client:
             response = await client.post(url, json=json, headers=headers)
             response.raise_for_status()
             return response.json()

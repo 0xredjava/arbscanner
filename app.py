@@ -1,56 +1,101 @@
-"""Vercel web entrypoint — landing page for the arb scanner repo."""
+"""Railway FastAPI entrypoint for the arbitrage scanner."""
 
 from __future__ import annotations
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from contextlib import asynccontextmanager
+from typing import Annotated
 
-app = FastAPI(title="Arb Scanner")
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi.middleware.cors import CORSMiddleware
 
-HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Arb Scanner</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 3rem auto; padding: 0 1.5rem; line-height: 1.6; color: #111; }
-    code, pre { background: #f4f4f5; border-radius: 6px; }
-    code { padding: 0.15rem 0.35rem; }
-    pre { padding: 1rem; overflow-x: auto; }
-    a { color: #0969da; }
-    .note { background: #fff8c5; border: 1px solid #d4a72c; padding: 1rem; border-radius: 8px; }
-  </style>
-</head>
-<body>
-  <h1>Sports Betting Arbitrage Scanner</h1>
-  <p>This site is the project home page. The scanner runs as a Python app on your machine (or Streamlit Cloud for the dashboard).</p>
-  <div class="note">
-    <strong>Run locally</strong>
-    <pre>git clone https://github.com/CryptoDungeonMaster/arbscanner.git
-cd arbscanner
-python -m venv venv
-venv\\Scripts\\activate
-pip install -r requirements.txt
-copy .env.example .env
-python scan.py --once --platforms polymarket,cloudbet
-streamlit run dashboard.py</pre>
-  </div>
-  <p><a href="https://github.com/CryptoDungeonMaster/arbscanner">View source on GitHub</a></p>
-</body>
-</html>"""
+from config.settings import get_settings
+from services.scan_service import ScanService
+from storage.supabase import SupabaseStore
+from utils.logging import setup_logging
 
 
-@app.get("/", response_class=HTMLResponse)
-def home() -> str:
-    return HTML
+settings = get_settings()
+setup_logging(settings.log_level)
+store = SupabaseStore(settings)
+scan_service = ScanService(settings, store)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    scan_service.start_background()
+    yield
+    await scan_service.stop_background()
+
+
+app = FastAPI(title="Arbitrage Scanner API", version="1.0.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list or ["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+
+def require_admin_token(x_admin_token: Annotated[str | None, Header()] = None) -> None:
+    if not settings.admin_token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ADMIN_TOKEN is not configured",
+        )
+    if x_admin_token != settings.admin_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin token",
+        )
+
+
+@app.get("/")
+async def root() -> dict:
+    return {
+        "service": "arbitrage-scanner-api",
+        "status": "ok",
+        "docs": "/docs",
+    }
 
 
 @app.get("/api/health")
-def health() -> dict:
+async def health() -> dict:
+    db = await store.health()
     return {
-        "status": "ok",
-        "service": "arb-scanner",
-        "note": "Scanner runs locally; this endpoint is informational only.",
-        "github": "https://github.com/CryptoDungeonMaster/arbscanner",
+        "status": "ok" if db.get("ok") else "degraded",
+        "database": db,
+        "scanner_running": scan_service.is_running,
+        "scan_interval_seconds": settings.refresh_interval_seconds,
+        "enabled_platforms": settings.enabled_platforms,
     }
+
+
+@app.get("/api/platforms")
+async def platforms() -> dict:
+    return {"platforms": await scan_service.latest_platforms()}
+
+
+@app.get("/api/scans/latest")
+async def latest_scan() -> dict:
+    latest = await scan_service.latest_scan()
+    return {"scan": latest, "running": scan_service.is_running}
+
+
+@app.get("/api/opportunities/latest")
+async def latest_opportunities(
+    sport: Annotated[str | None, Query()] = None,
+    platform: Annotated[str | None, Query()] = None,
+    min_profit: Annotated[float | None, Query(alias="minProfit")] = None,
+) -> dict:
+    opportunities = await scan_service.latest_opportunities(
+        sport=sport,
+        platform=platform,
+        min_profit=min_profit,
+    )
+    return {"opportunities": opportunities, "running": scan_service.is_running}
+
+
+@app.post("/api/scans/run", dependencies=[Depends(require_admin_token)])
+async def run_scan() -> dict:
+    return {"scan": await scan_service.run_scan(trigger="manual")}

@@ -38,8 +38,15 @@ ENV/
 
 # Runtime data
 data/
+logs/
 *.log
 *.jsonl
+
+# Frontend
+node_modules/
+.next/
+frontend/node_modules/
+frontend/.next/
 
 # Playwright
 .playwright/

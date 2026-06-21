@@ -4,9 +4,33 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from difflib import SequenceMatcher
 from datetime import datetime, timedelta
 
-from rapidfuzz import fuzz
+try:
+    from rapidfuzz import fuzz
+except ImportError:
+    class _FallbackFuzz:
+        @staticmethod
+        def ratio(a: str, b: str) -> float:
+            return SequenceMatcher(None, a, b).ratio() * 100
+
+        @staticmethod
+        def token_sort_ratio(a: str, b: str) -> float:
+            left = " ".join(sorted(a.lower().split()))
+            right = " ".join(sorted(b.lower().split()))
+            return _FallbackFuzz.ratio(left, right)
+
+        @staticmethod
+        def partial_ratio(a: str, b: str) -> float:
+            if not a or not b:
+                return 0.0
+            shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+            if shorter in longer:
+                return 100.0
+            return _FallbackFuzz.ratio(shorter, longer)
+
+    fuzz = _FallbackFuzz()
 
 from models.odds import EventMatch, ScrapedEvent, Sport
 from normalizer.odds_normalizer import OddsNormalizer
@@ -73,10 +97,10 @@ class EventMatcher:
             return float(title_score)
 
         direct = (
-            fuzz.ratio(home_a, home_b) + fuzz.ratio(away_a, away_b)
+            self._team_similarity(home_a, home_b) + self._team_similarity(away_a, away_b)
         ) / 2
         swapped = (
-            fuzz.ratio(home_a, away_b) + fuzz.ratio(away_a, home_b)
+            self._team_similarity(home_a, away_b) + self._team_similarity(away_a, home_b)
         ) / 2
         team_score = max(direct, swapped)
 
@@ -87,6 +111,10 @@ class EventMatcher:
 
         league_score = fuzz.partial_ratio(a.league.lower(), b.league.lower())
         return team_score * 0.8 + league_score * 0.2
+
+    @staticmethod
+    def _team_similarity(a: str, b: str) -> float:
+        return max(fuzz.ratio(a, b), fuzz.partial_ratio(a, b))
 
     def _build_match(self, group: list[ScrapedEvent]) -> EventMatch | None:
         platforms = {e.platform for e in group}

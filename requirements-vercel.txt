@@ -1,1 +1,1 @@
-fastapi>=0.117.1
+# The Vercel frontend lives in frontend/ and uses npm dependencies.

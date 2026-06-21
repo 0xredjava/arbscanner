@@ -27,7 +27,7 @@ SCRAPER_MAP: dict[str, type[BaseScraper]] = {
 
 
 def build_scrapers(settings: Settings) -> list[BaseScraper]:
-    proxy_rotator = ProxyRotator(settings.proxies)
+    proxy_rotator = ProxyRotator([])
     http = AsyncHttpClient(proxy_rotator=proxy_rotator)
     scrapers: list[BaseScraper] = []
 

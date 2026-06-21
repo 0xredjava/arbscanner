@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,11 +20,11 @@ class Settings(BaseSettings):
 
     # General
     log_level: str = "INFO"
-    refresh_interval_seconds: int = 30
+    refresh_interval_seconds: int = Field(default=60, validation_alias="SCAN_INTERVAL_SECONDS")
     min_profit_pct: float = 2.0
     default_bankroll: float = 1000.0
-    paper_trading: bool = True
-    auto_execute: bool = False
+    admin_token: str = ""
+    cors_origins: str = "http://localhost:3000"
 
     # Fee / slippage assumptions (percent)
     default_platform_fee_pct: float = 2.0
@@ -40,10 +38,6 @@ class Settings(BaseSettings):
     polymarket_gamma_url: str = "https://gamma-api.polymarket.com"
     polymarket_clob_url: str = "https://clob.polymarket.com"
     polymarket_data_url: str = "https://data-api.polymarket.com"
-    polymarket_private_key: str = ""
-    polymarket_api_key: str = ""
-    polymarket_api_secret: str = ""
-    polymarket_api_passphrase: str = ""
 
     # The Odds API (optional fallback aggregator)
     the_odds_api_key: str = ""
@@ -52,13 +46,11 @@ class Settings(BaseSettings):
     # Cloudbet (public, no key required for odds)
     cloudbet_api_url: str = "https://sports-api.cloudbet.com/pub/v2"
 
-    # Telegram
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
-    telegram_enabled: bool = False
+    # Supabase persistence
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
 
-    # Proxy rotation (comma-separated URLs)
-    proxy_list: str = ""
+    # Server-side browser fallback. Proxies and logged-in sessions are intentionally unsupported.
     use_playwright_headless: bool = True
     playwright_timeout_ms: int = 30000
 
@@ -73,34 +65,20 @@ class Settings(BaseSettings):
 
     # Output
     json_log_path: Path = Field(default=PROJECT_ROOT / "data" / "arbs.json")
-    arb_history_path: Path = Field(default=PROJECT_ROOT / "data" / "arb_history.jsonl")
 
     # Matcher
     fuzzy_match_threshold: int = 75
     max_event_time_diff_minutes: int = 120
 
-    # Execution mode
-    execution_mode: Literal["paper", "live"] = "paper"
-
-    @field_validator("json_log_path", "arb_history_path", mode="before")
+    @field_validator("json_log_path", mode="before")
     @classmethod
     def resolve_path(cls, v: str | Path) -> Path:
         p = Path(v)
         return p if p.is_absolute() else PROJECT_ROOT / p
 
     @model_validator(mode="after")
-    def disable_playwright_on_railway(self) -> Settings:
-        """Browser scrapers need Chromium + long timeouts; skip on Railway by default."""
-        on_railway = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PUBLIC_DOMAIN"))
-        if not on_railway:
-            return self
-        if os.getenv("ENABLE_PLAYWRIGHT_PLATFORMS", "").lower() in ("1", "true", "yes"):
-            return self
-        self.enable_stake = False
-        self.enable_bcgame = False
-        self.enable_shuffle = False
-        self.enable_tgcasino = False
-        self.enable_thunderpick = False
+    def enforce_public_data_mode(self) -> Settings:
+        """Keep v1 limited to public/no-login market data."""
         return self
 
     @property
@@ -109,7 +87,11 @@ class Settings(BaseSettings):
 
     @property
     def proxies(self) -> list[str]:
-        return [p.strip() for p in self.proxy_list.split(",") if p.strip()]
+        return []
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def enabled_platforms(self) -> list[str]:

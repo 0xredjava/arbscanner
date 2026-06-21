@@ -1,0 +1,264 @@
+"use client";
+
+import { Activity, AlertTriangle, ExternalLink, Filter, RefreshCw, ShieldCheck } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+type Leg = {
+  platform: string;
+  outcome: string;
+  odds: number;
+  stake: number;
+  return: number;
+  url?: string | null;
+  fee_pct?: number;
+};
+
+type Opportunity = {
+  id?: string | number;
+  match_id?: string;
+  sport: string;
+  event_name: string;
+  league: string;
+  market_type: string;
+  profit_pct: number;
+  total_stake: number;
+  guaranteed_return: number;
+  guaranteed_profit: number;
+  legs: Leg[];
+  warnings?: string[];
+  detected_at?: string;
+};
+
+type PlatformStatus = {
+  platform: string;
+  enabled: boolean;
+  status: string;
+  fetch_method: string;
+  event_count: number;
+  last_error?: string | null;
+  updated_at?: string;
+};
+
+type Scan = {
+  id?: string;
+  started_at?: string;
+  finished_at?: string;
+  status?: string;
+  event_count?: number;
+  opportunity_count?: number;
+};
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const SPORTS = ["", "soccer", "nba", "nfl", "mlb", "nhl", "tennis"];
+const PLATFORMS = ["", "polymarket", "stake", "bcgame", "shuffle", "cloudbet", "tgcasino", "thunderpick"];
+
+export default function Dashboard() {
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [platforms, setPlatforms] = useState<PlatformStatus[]>([]);
+  const [scan, setScan] = useState<Scan | null>(null);
+  const [running, setRunning] = useState(false);
+  const [sport, setSport] = useState("");
+  const [platform, setPlatform] = useState("");
+  const [minProfit, setMinProfit] = useState("0");
+  const [expanded, setExpanded] = useState<string | number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadData() {
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (sport) params.set("sport", sport);
+      if (platform) params.set("platform", platform);
+      if (minProfit) params.set("minProfit", minProfit);
+
+      const [oppsRes, platformRes, scanRes] = await Promise.all([
+        fetch(`${API_BASE}/api/opportunities/latest?${params.toString()}`),
+        fetch(`${API_BASE}/api/platforms`),
+        fetch(`${API_BASE}/api/scans/latest`)
+      ]);
+
+      if (!oppsRes.ok || !platformRes.ok || !scanRes.ok) {
+        throw new Error("API request failed");
+      }
+
+      const oppsData = await oppsRes.json();
+      const platformData = await platformRes.json();
+      const scanData = await scanRes.json();
+      setOpportunities(oppsData.opportunities || []);
+      setRunning(Boolean(oppsData.running || scanData.running));
+      setPlatforms(platformData.platforms || []);
+      setScan(scanData.scan || null);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Unable to load scanner data");
+    }
+  }
+
+  async function runScan() {
+    const token = window.prompt("Admin token");
+    if (!token) return;
+    setRunning(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/scans/run`, {
+        method: "POST",
+        headers: { "X-Admin-Token": token }
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || "Manual scan failed");
+      }
+      await loadData();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Manual scan failed");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadData();
+  }, [sport, platform, minProfit]);
+
+  const totals = useMemo(() => {
+    const ok = platforms.filter((item) => item.status === "ok").length;
+    const failed = platforms.filter((item) => item.status === "failed").length;
+    return { ok, failed };
+  }, [platforms]);
+
+  return (
+    <main className="shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">Pre-match moneyline scanner</p>
+          <h1>Arbitrage Scanner</h1>
+        </div>
+        <button className="primary" onClick={runScan} disabled={running}>
+          <RefreshCw size={18} className={running ? "spin" : ""} />
+          {running ? "Scanning" : "Refresh"}
+        </button>
+      </header>
+
+      <section className="metrics" aria-label="Scanner summary">
+        <Metric label="Latest scan" value={scan?.finished_at ? new Date(scan.finished_at).toLocaleString() : "No scan"} />
+        <Metric label="Events" value={scan?.event_count ?? 0} />
+        <Metric label="Opportunities" value={scan?.opportunity_count ?? opportunities.length} />
+        <Metric label="Platforms ok" value={`${totals.ok}/${platforms.length || PLATFORMS.length - 1}`} />
+      </section>
+
+      {error ? (
+        <div className="notice">
+          <AlertTriangle size={18} />
+          {error}
+        </div>
+      ) : null}
+
+      <section className="toolbar" aria-label="Opportunity filters">
+        <Filter size={18} />
+        <select value={sport} onChange={(event) => setSport(event.target.value)} aria-label="Sport">
+          {SPORTS.map((item) => (
+            <option key={item || "all"} value={item}>{item || "All sports"}</option>
+          ))}
+        </select>
+        <select value={platform} onChange={(event) => setPlatform(event.target.value)} aria-label="Platform">
+          {PLATFORMS.map((item) => (
+            <option key={item || "all"} value={item}>{item || "All platforms"}</option>
+          ))}
+        </select>
+        <label>
+          Min profit
+          <input value={minProfit} onChange={(event) => setMinProfit(event.target.value)} inputMode="decimal" />
+        </label>
+      </section>
+
+      <section className="layout">
+        <div className="opportunities">
+          <div className="sectionTitle">
+            <Activity size={18} />
+            Opportunities
+          </div>
+          <div className="table">
+            <div className="row head">
+              <span>Event</span>
+              <span>Sport</span>
+              <span>Profit</span>
+              <span>Legs</span>
+            </div>
+            {opportunities.length === 0 ? (
+              <div className="empty">No opportunities above the current threshold.</div>
+            ) : opportunities.map((item, index) => {
+              const key = item.id || item.match_id || index;
+              return (
+                <div key={key}>
+                  <button className="row data" onClick={() => setExpanded(expanded === key ? null : key)}>
+                    <span>
+                      <strong>{item.event_name}</strong>
+                      <small>{item.league || "Unknown league"}</small>
+                    </span>
+                    <span>{item.sport}</span>
+                    <span className="profit">{Number(item.profit_pct).toFixed(2)}%</span>
+                    <span>{item.legs.map((leg) => leg.platform).join(" / ")}</span>
+                  </button>
+                  {expanded === key ? <OpportunityDetails item={item} /> : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <aside className="health">
+          <div className="sectionTitle">
+            <ShieldCheck size={18} />
+            Platform Health
+          </div>
+          {platforms.map((item) => (
+            <div className="platform" key={item.platform}>
+              <div>
+                <strong>{item.platform}</strong>
+                <small>{item.fetch_method} - {item.event_count || 0} events</small>
+              </div>
+              <span className={`badge ${item.status}`}>{item.status}</span>
+              {item.last_error ? <p>{item.last_error}</p> : null}
+            </div>
+          ))}
+        </aside>
+      </section>
+    </main>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function OpportunityDetails({ item }: { item: Opportunity }) {
+  return (
+    <div className="details">
+      <div className="legs">
+        {item.legs.map((leg) => (
+          <div className="leg" key={`${leg.platform}-${leg.outcome}`}>
+            <strong>{leg.platform}</strong>
+            <span>{leg.outcome}</span>
+            <span>@ {Number(leg.odds).toFixed(2)}</span>
+            <span>${Number(leg.stake).toFixed(2)}</span>
+            {leg.url ? (
+              <a href={leg.url} target="_blank" rel="noreferrer" aria-label={`Open ${leg.platform}`}>
+                <ExternalLink size={16} />
+              </a>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      <div className="returns">
+        <span>Stake ${Number(item.total_stake).toFixed(2)}</span>
+        <span>Return ${Number(item.guaranteed_return).toFixed(2)}</span>
+        <strong>Profit ${Number(item.guaranteed_profit).toFixed(2)}</strong>
+      </div>
+      {item.warnings?.length ? <p className="warning">{item.warnings.join("; ")}</p> : null}
+    </div>
+  );
+}

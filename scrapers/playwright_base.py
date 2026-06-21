@@ -18,6 +18,7 @@ class PlaywrightScraper(BaseScraper):
 
     base_url: str = ""
     api_patterns: list[str] = []  # URL substrings to intercept
+    fetch_method = "playwright"
 
     async def fetch_events(self) -> list[ScrapedEvent]:
         try:
