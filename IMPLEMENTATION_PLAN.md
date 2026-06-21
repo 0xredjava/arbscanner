@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implemented locally on 2026-06-21; production migration and rollout remain.**
+**Implemented and deployed to Supabase, Railway, and Vercel on 2026-06-21.**
 
 The source-integration scope below was completed and deployed on 2026-06-21,
 but the product is not considered complete as an actionable arbitrage tool. A
@@ -163,7 +163,7 @@ work in the next section is now the highest-priority implementation scope.
 - [ ] Add production telemetry for quote age, revalidation failures, insufficient
   depth, price movement, observation duration, and opportunities rejected by
   execution checks.
-- [ ] Roll out behind an `execution_safe_opportunities` feature flag. Remove the
+- [x] Roll out behind an `execution_safe_opportunities` feature flag. Remove the
   old guaranteed-return presentation only after migrations, history endpoints,
   tests, shadow validation, and mobile/browser review pass.
 
