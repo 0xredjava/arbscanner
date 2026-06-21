@@ -373,9 +373,9 @@ class ArbCalculator:
             [
                 sport.value,
                 self.normalizer.clean_team_name(event_name),
-                start_time.isoformat() if start_time else "",
+                start_time.date().isoformat() if start_time else "",
                 market_type,
-                *sorted(f"{key}:{event.platform.value}" for key, _outcome, event in legs),
+                *sorted(key for key, _outcome, _event in legs),
             ]
         )
         fingerprint = hashlib.sha256(fingerprint_source.encode()).hexdigest()[:24]

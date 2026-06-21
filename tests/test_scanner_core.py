@@ -237,6 +237,27 @@ def test_opportunity_fingerprint_is_stable_across_observations():
     assert first.detected_at != second.detected_at
 
 
+def test_opportunity_fingerprint_does_not_change_when_best_platform_changes():
+    calculator = ArbCalculator(min_profit_pct=1, bankroll=1000, liquidity_buffer_pct=0)
+    matches = londrina_match()
+    first = calculator.find_arbitrages(matches)[0]
+    matches[0].events.append(
+        event(
+            Platform.CLOUDBET,
+            "Cuiaba EC",
+            "Londrina EC",
+            [("Cuiaba EC", 1.95), ("Draw", 3.0), ("Londrina EC", 4.0)],
+            market_type="1x2",
+            sport=Sport.SOCCER,
+            league="Brazil Serie B",
+        )
+    )
+    second = calculator.find_arbitrages(matches)[0]
+
+    assert first.fingerprint == second.fingerprint
+    assert first.legs[0].platform != second.legs[0].platform
+
+
 def test_geography_is_not_implicitly_brazil_only():
     brazil = event(Platform.THUNDERPICK, "A", "B", [("A", 2), ("B", 2)], league="Brazil Serie B")
     england = event(Platform.THUNDERPICK, "C", "D", [("C", 2), ("D", 2)], league="Premier League")

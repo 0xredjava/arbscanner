@@ -118,7 +118,7 @@ work in the next section is now the highest-priority implementation scope.
 ### Phase 10 - opportunity lifecycle and timing evidence (P0)
 
 - [x] Introduce a stable opportunity fingerprint based on canonical event,
-  market, outcomes, and selected platforms. Do not use a per-scan database row
+  event date, market, and outcome set (independent of selected platforms). Do not use a per-scan database row
   ID as the lifecycle identity.
 - [x] Add an `opportunity_observations` time-series table with scan ID,
   fingerprint, observed/detected time, quote times, prices, depth, allocations,
