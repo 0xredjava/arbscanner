@@ -96,25 +96,41 @@ class EventMatcher:
             title_score = fuzz.token_sort_ratio(a.display_name, b.display_name)
             return float(title_score)
 
-        direct = (
-            self._team_similarity(home_a, home_b) + self._team_similarity(away_a, away_b)
-        ) / 2
-        swapped = (
-            self._team_similarity(home_a, away_b) + self._team_similarity(away_a, home_b)
-        ) / 2
-        team_score = max(direct, swapped)
+        if not all((home_a, away_a, home_b, away_b)):
+            return 0.0
 
         if a.start_time and b.start_time:
             diff = abs(a.start_time - b.start_time)
             if diff > self.max_time_diff:
-                team_score *= 0.5
+                return 0.0
 
-        league_score = fuzz.partial_ratio(a.league.lower(), b.league.lower())
-        return team_score * 0.8 + league_score * 0.2
+        direct = (
+            self._team_similarity(home_a, home_b),
+            self._team_similarity(away_a, away_b),
+        )
+        swapped = (
+            self._team_similarity(home_a, away_b),
+            self._team_similarity(away_a, home_b),
+        )
+        best_pair = max((direct, swapped), key=lambda scores: sum(scores))
+
+        # Both competitors must independently resemble the same fixture. A league
+        # name or a shared city prefix must never rescue one unrelated team.
+        if min(best_pair) < 65:
+            return 0.0
+        return sum(best_pair) / 2
 
     @staticmethod
     def _team_similarity(a: str, b: str) -> float:
-        return max(fuzz.ratio(a, b), fuzz.partial_ratio(a, b))
+        if a == b:
+            return 100.0
+        a_tokens, b_tokens = a.split(), b.split()
+        if a_tokens and b_tokens:
+            shorter, longer = (a_tokens, b_tokens) if len(a_tokens) <= len(b_tokens) else (b_tokens, a_tokens)
+            width = len(shorter)
+            if any(longer[i : i + width] == shorter for i in range(len(longer) - width + 1)):
+                return 100.0
+        return max(fuzz.ratio(a, b), fuzz.token_sort_ratio(a, b))
 
     def _build_match(self, group: list[ScrapedEvent]) -> EventMatch | None:
         platforms = {e.platform for e in group}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from models.odds import (
     ArbitrageOpportunity,
     EventMatch,
@@ -60,9 +61,17 @@ class ArbCalculator:
         if match.events[0].market_type not in ("moneyline", "1x2", "prediction"):
             return self._check_multi_outcome_match(match)
 
-        best_legs = self._best_odds_per_outcome(match)
-        required_outcomes = 2 if match.events[0].market_type != "1x2" else 3
-        if len(best_legs) < required_outcomes:
+        required_keys = (
+            ("home", "draw", "away")
+            if match.events[0].market_type == "1x2"
+            else ("yes", "no")
+            if match.events[0].market_type == "prediction"
+            else ("home", "away")
+        )
+        best_legs = self._best_odds_per_outcome(match, required_keys)
+        if len(best_legs) != len(required_keys):
+            return None
+        if len({event.platform for _key, _outcome, event in best_legs}) < 2:
             return None
 
         return self._calculate_arb(
@@ -75,21 +84,47 @@ class ArbCalculator:
         )
 
     def _best_odds_per_outcome(
-        self, match: EventMatch
+        self, match: EventMatch, required_keys: tuple[str, ...] | None = None
     ) -> list[tuple[str, MarketOutcome, ScrapedEvent]]:
         """Pick highest decimal odds for each distinct outcome across platforms."""
         outcome_buckets: dict[str, list[tuple[MarketOutcome, ScrapedEvent]]] = {}
 
         for event in match.events:
+            direct = (
+                self._team_similarity(event.home_team, match.home_team)
+                + self._team_similarity(event.away_team, match.away_team)
+            )
+            swapped = (
+                self._team_similarity(event.home_team, match.away_team)
+                + self._team_similarity(event.away_team, match.home_team)
+            )
+            is_swapped = swapped > direct
             for outcome in event.outcomes:
                 key = self._outcome_key(outcome.name, event)
+                if is_swapped and key in ("home", "away"):
+                    key = "away" if key == "home" else "home"
                 outcome_buckets.setdefault(key, []).append((outcome, event))
 
         best: list[tuple[str, MarketOutcome, ScrapedEvent]] = []
-        for key, candidates in outcome_buckets.items():
+        keys = required_keys or tuple(outcome_buckets)
+        for key in keys:
+            candidates = outcome_buckets.get(key)
+            if not candidates:
+                continue
             best_pair = max(candidates, key=lambda x: x[0].decimal_odds)
             best.append((key, best_pair[0], best_pair[1]))
         return best
+
+    def _team_similarity(self, a: str, b: str) -> float:
+        left = self.normalizer.clean_team_name(a)
+        right = self.normalizer.clean_team_name(b)
+        if left == right:
+            return 100.0
+        ratio = SequenceMatcher(None, left, right).ratio() * 100
+        token_ratio = SequenceMatcher(
+            None, " ".join(sorted(left.split())), " ".join(sorted(right.split()))
+        ).ratio() * 100
+        return max(ratio, token_ratio)
 
     def _outcome_key(self, name: str, event: ScrapedEvent) -> str:
         cleaned = self.normalizer.clean_outcome_name(name)
