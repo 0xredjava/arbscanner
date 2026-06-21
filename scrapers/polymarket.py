@@ -187,7 +187,10 @@ class PolymarketScraper(BaseScraper):
                     token_id=token_ids[yes_index] if yes_index < len(token_ids) else None,
                     selection_id=str(market.get("id") or ""),
                     url=url,
-                    raw={"gamma_price": price},
+                    raw={
+                        "gamma_price": price,
+                        "fee_rate": self._market_fee_rate(market),
+                    },
                 )
             )
             start_time = start_time or self._parse_datetime(
@@ -230,7 +233,9 @@ class PolymarketScraper(BaseScraper):
         for i in range(0, len(token_ids), batch_size):
             batch = token_ids[i : i + batch_size]
             try:
-                body = [{"token_id": tid, "side": "SELL"} for tid in batch]
+                # BUY returns the lowest ask: the executable price paid to acquire
+                # the outcome token. SELL returns the bid and would overstate odds.
+                body = [{"token_id": tid, "side": "BUY"} for tid in batch]
                 prices_data = await self.http.post(f"{self.clob_url}/prices", json=body)
                 self.response_count += 1
                 if isinstance(prices_data, dict):
@@ -238,7 +243,7 @@ class PolymarketScraper(BaseScraper):
                         if tid in token_map:
                             _, outcome = token_map[tid]
                             price = self._safe_float(
-                                price_value.get("SELL") if isinstance(price_value, dict) else price_value
+                                price_value.get("BUY") if isinstance(price_value, dict) else price_value
                             )
                             if 0 < price < 1:
                                 outcome.decimal_odds = 1.0 / price
@@ -246,6 +251,18 @@ class PolymarketScraper(BaseScraper):
                                 outcome.raw["clob_price"] = price
             except Exception:
                 logger.debug("CLOB price enrichment failed for batch %d", i)
+
+    @staticmethod
+    def _market_fee_rate(market: dict[str, Any]) -> float:
+        if market.get("feesEnabled") is not True:
+            return 0.0
+        schedule = market.get("feeSchedule") or market.get("fee_schedule") or {}
+        rate = PolymarketScraper._safe_float(
+            schedule.get("rate") if isinstance(schedule, dict) else None
+        )
+        # Official sports taker rate. Use it when a fee-enabled market omits the
+        # expanded schedule from Gamma.
+        return rate if rate > 0 else 0.03
 
     @staticmethod
     def _parse_outcomes_prices(market: dict[str, Any]) -> tuple[list[str], list[float]]:

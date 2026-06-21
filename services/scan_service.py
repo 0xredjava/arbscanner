@@ -111,6 +111,7 @@ class ScanService:
                 "running": False,
                 "platforms": statuses,
                 "opportunities": [opportunity.to_dict() for opportunity in opportunities],
+                "comparisons": self.orchestrator.latest_comparisons,
             }
             self._latest_snapshot = snapshot
             return snapshot
@@ -163,10 +164,93 @@ class ScanService:
             results.append(item)
         return results
 
+    async def latest_comparisons(self, limit: int = 10) -> list[dict[str, Any]]:
+        comparisons = self.orchestrator.latest_comparisons
+        if not comparisons and self._latest_snapshot:
+            comparisons = self._latest_snapshot.get("comparisons", [])
+        return comparisons[:limit]
+
+    async def latest_events(
+        self,
+        platform: str | None = None,
+        sport: str | None = None,
+        search: str | None = None,
+        limit: int = 2500,
+    ) -> list[dict[str, Any]]:
+        rows = await self.store.latest_events()
+        events = group_event_rows(rows)
+        needle = (search or "").strip().casefold()
+        filtered = []
+        for event in events:
+            if platform and event["platform"] != platform:
+                continue
+            if sport and event["sport"] != sport:
+                continue
+            if needle:
+                haystack = " ".join(
+                    str(event.get(key) or "")
+                    for key in ("home_team", "away_team", "league", "event_id")
+                ).casefold()
+                if needle not in haystack:
+                    continue
+            filtered.append(event)
+        return filtered[:limit]
+
     async def _background_loop(self) -> None:
         while True:
+            cycle_started = asyncio.get_running_loop().time()
             try:
                 await self.run_scan(trigger="background")
             except Exception:
                 logger.exception("Background scan failed")
-            await asyncio.sleep(self.settings.refresh_interval_seconds)
+            elapsed = asyncio.get_running_loop().time() - cycle_started
+            await asyncio.sleep(
+                max(0.0, self.settings.refresh_interval_seconds - elapsed)
+            )
+
+
+def group_event_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group persisted one-row-per-outcome records into inspectable events."""
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in rows:
+        platform = str(row.get("platform") or "")
+        event_id = str(row.get("event_id") or "")
+        event_key = str(row.get("event_key") or "")
+        if not platform or not event_id:
+            continue
+        key = (platform, event_id, event_key)
+        event = grouped.setdefault(
+            key,
+            {
+                "platform": platform,
+                "sport": row.get("sport"),
+                "event_key": event_key,
+                "event_id": event_id,
+                "home_team": row.get("home_team"),
+                "away_team": row.get("away_team"),
+                "league": row.get("league"),
+                "start_time": row.get("start_time"),
+                "market_type": row.get("market_type"),
+                "url": row.get("url"),
+                "outcomes": [],
+            },
+        )
+        event["outcomes"].append(
+            {
+                "name": row.get("outcome_name"),
+                "decimal_odds": row.get("decimal_odds"),
+                "implied_prob": row.get("implied_prob"),
+                "fee_adjusted_prob": row.get("fee_adjusted_prob"),
+                "liquidity_usd": row.get("liquidity_usd"),
+                "url": row.get("url"),
+            }
+        )
+    return sorted(
+        grouped.values(),
+        key=lambda event: (
+            event["platform"],
+            event.get("sport") or "",
+            event.get("start_time") or "",
+            event.get("home_team") or "",
+        ),
+    )

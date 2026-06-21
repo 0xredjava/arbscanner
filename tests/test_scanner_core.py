@@ -131,3 +131,38 @@ def test_swapped_fixture_order_keeps_outcomes_aligned():
     assert len(opportunities) == 1
     assert {leg.outcome_name for leg in opportunities[0].legs} == {"Team A", "Team B"}
     assert {leg.platform for leg in opportunities[0].legs} == {Platform.CLOUDBET, Platform.STAKE}
+
+
+def test_closest_markets_explains_non_profitable_match():
+    matcher = EventMatcher(threshold=75)
+    matches = matcher.match_events(
+        [
+            event(Platform.CLOUDBET, "Team A", "Team B", [("Team A", 1.9), ("Team B", 1.8)]),
+            event(Platform.THUNDERPICK, "Team A", "Team B", [("Team A", 1.8), ("Team B", 1.9)]),
+        ]
+    )
+    calculator = ArbCalculator(min_profit_pct=2, bankroll=100)
+
+    comparisons = calculator.closest_markets(matches)
+
+    assert len(comparisons) == 1
+    assert comparisons[0]["margin_pct"] < 0
+    assert comparisons[0]["break_even_gap_pct"] > 0
+
+
+def test_polymarket_taker_fee_reduces_effective_odds():
+    calculator = ArbCalculator(default_fee_pct=0, slippage_pct=0)
+    poly_event = event(
+        Platform.POLYMARKET,
+        "Team A",
+        "Team B",
+        [("Team A", 2.0), ("Team B", 2.0)],
+    )
+    poly_event.outcomes[0].raw["fee_rate"] = 0.03
+
+    effective, cost_pct = calculator._effective_odds(
+        poly_event.outcomes[0], poly_event
+    )
+
+    assert round(effective, 6) == round(1 / (0.5 + 0.03 * 0.5 * 0.5), 6)
+    assert cost_pct > 0

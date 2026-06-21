@@ -101,7 +101,7 @@ h1 {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin: 18px 0;
 }
@@ -234,6 +234,48 @@ h1 {
 
 .empty {
   padding: 34px 14px;
+  color: var(--muted);
+}
+
+.closest {
+  border-top: 1px solid var(--line);
+  background: #fcfcfd;
+}
+
+.closestTitle {
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.closestItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.closestItem small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.nearPositive,
+.nearNegative {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.nearPositive {
+  color: var(--warn);
+}
+
+.nearNegative {
   color: var(--muted);
 }
 
@@ -382,7 +424,8 @@ h1 {
   }
 
   .leg,
-  .returns {
+  .returns,
+  .closestItem {
     align-items: flex-start;
     flex-direction: column;
   }

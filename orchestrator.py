@@ -44,6 +44,7 @@ class ArbOrchestrator:
         self._latest_opportunities: list[ArbitrageOpportunity] = []
         self._latest_events: list[ScrapedEvent] = []
         self._latest_normalized: list[NormalizedOdds] = []
+        self._latest_comparisons: list[dict] = []
         self._latest_platform_statuses: list[dict] = []
         self._platform_last_success: dict[str, str] = {}
 
@@ -58,6 +59,10 @@ class ArbOrchestrator:
     @property
     def latest_normalized(self) -> list[NormalizedOdds]:
         return self._latest_normalized
+
+    @property
+    def latest_comparisons(self) -> list[dict]:
+        return self._latest_comparisons
 
     @property
     def latest_platform_statuses(self) -> list[dict]:
@@ -87,6 +92,7 @@ class ArbOrchestrator:
 
         # Match cross-platform events
         matches = self.matcher.match_events(all_events)
+        self._latest_comparisons = self.calculator.closest_markets(matches, limit=20)
 
         # Detect cross-platform arbs
         cross_arbs = self.calculator.find_arbitrages(matches)

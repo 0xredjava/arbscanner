@@ -1,0 +1,279 @@
+.shell {
+  width: min(1500px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.header h1 {
+  margin: 0;
+}
+
+.eyebrow {
+  margin: 0 0 5px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.subtitle {
+  margin: 7px 0 0;
+  color: var(--muted);
+}
+
+.refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 7px;
+  color: white;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.metric {
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.metric span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.metric strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 19px;
+}
+
+.platformSummary,
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.platformSummary {
+  margin-bottom: 12px;
+}
+
+.pill,
+.activePill {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pill strong,
+.activePill strong {
+  margin-left: 5px;
+}
+
+.activePill {
+  border-color: var(--accent);
+  background: #ecfdf3;
+  color: var(--accent-strong);
+}
+
+.filters {
+  padding: 10px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 320px;
+}
+
+.search input,
+.filters select {
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  padding: 0 10px;
+}
+
+.search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+}
+
+.groups {
+  display: grid;
+  gap: 12px;
+}
+
+.group {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.group summary {
+  display: flex;
+  justify-content: space-between;
+  padding: 13px 15px;
+  cursor: pointer;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.group summary strong {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.eventList {
+  border-top: 1px solid var(--line);
+}
+
+.event {
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+.event:last-child {
+  border-bottom: 0;
+}
+
+.eventInfo,
+.outcomes {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.eventInfo {
+  justify-content: space-between;
+}
+
+.eventInfo span,
+.eventMeta span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.eventMeta {
+  text-align: right;
+}
+
+.eventMeta code {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.outcomes {
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.outcome {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f9fafb;
+}
+
+.outcome small {
+  color: var(--muted);
+}
+
+.open {
+  display: inline-flex;
+  padding: 8px;
+  color: var(--accent);
+}
+
+.error,
+.loading {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.error {
+  color: var(--danger);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 850px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .eventInfo {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .eventMeta {
+    text-align: left;
+  }
+}
+
+@media (max-width: 560px) {
+  .shell {
+    padding: 15px;
+  }
+
+  .header {
+    flex-direction: column;
+  }
+
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .outcome {
+    width: 100%;
+  }
+}

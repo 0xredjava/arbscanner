@@ -96,6 +96,44 @@ async def latest_opportunities(
     return {"opportunities": opportunities, "running": scan_service.is_running}
 
 
+@app.get("/api/opportunities/closest")
+async def closest_opportunities(
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> dict:
+    return {
+        "comparisons": await scan_service.latest_comparisons(limit=limit),
+        "running": scan_service.is_running,
+    }
+
+
+@app.get("/api/events/latest")
+async def latest_events(
+    platform: Annotated[str | None, Query()] = None,
+    sport: Annotated[str | None, Query()] = None,
+    search: Annotated[str | None, Query(alias="q")] = None,
+    limit: Annotated[int, Query(ge=1, le=5000)] = 2500,
+) -> dict:
+    events = await scan_service.latest_events(
+        platform=platform,
+        sport=sport,
+        search=search,
+        limit=limit,
+    )
+    counts: dict[str, int] = {
+        enabled_platform: 0 for enabled_platform in settings.enabled_platforms
+    }
+    for event in events:
+        counts[event["platform"]] = counts.get(event["platform"], 0) + 1
+    return {
+        "scan": await scan_service.latest_scan(),
+        "events": events,
+        "event_count": len(events),
+        "counts_by_platform": counts,
+        "running": scan_service.is_running,
+        "scan_interval_seconds": settings.refresh_interval_seconds,
+    }
+
+
 @app.post("/api/scans/run", dependencies=[Depends(require_admin_token)])
 async def run_scan() -> dict:
     return {"scan": await scan_service.run_scan(trigger="manual")}

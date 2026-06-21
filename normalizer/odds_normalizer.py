@@ -13,11 +13,11 @@ class OddsNormalizer:
     PLATFORM_FEES: dict[Platform, float] = {
         Platform.POLYMARKET: 0.0,
         Platform.STAKE: 0.0,
-        Platform.BCGAME: 1.0,
-        Platform.SHUFFLE: 1.0,
+        Platform.BCGAME: 0.0,
+        Platform.SHUFFLE: 0.0,
         Platform.CLOUDBET: 0.0,
-        Platform.TGCASINO: 2.0,
-        Platform.THUNDERPICK: 1.0,
+        Platform.TGCASINO: 0.0,
+        Platform.THUNDERPICK: 0.0,
         Platform.THE_ODDS_API: 0.0,
     }
 
@@ -36,7 +36,15 @@ class OddsNormalizer:
 
             american = self.decimal_to_american(decimal)
             implied = 1.0 / decimal
-            fee_adjusted = implied * (1 + (fee_pct + self.slippage_pct) / 100)
+            if event.platform == Platform.POLYMARKET:
+                try:
+                    fee_rate = float(outcome.raw.get("fee_rate", 0.0))
+                except (TypeError, ValueError):
+                    fee_rate = 0.0
+                fee_adjusted = implied + fee_rate * implied * (1 - implied)
+            else:
+                fee_adjusted = implied / max(1 - fee_pct / 100, 0.000001)
+            fee_adjusted /= max(1 - self.slippage_pct / 100, 0.000001)
 
             records.append(
                 NormalizedOdds(

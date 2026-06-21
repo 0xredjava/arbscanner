@@ -119,6 +119,12 @@ Platform-specific implementation:
   14-day events before matching.
 - [x] Remove the production false positives caused by unrelated same-league
   fixtures and reversed outcomes.
+- [x] Correct Polymarket execution pricing to use the CLOB `BUY` ask rather than
+  the non-executable `SELL` bid.
+- [x] Remove invented flat sportsbook fees (bookmaker margin is already present
+  in fixed odds) and model Polymarket's official per-market taker fee curve.
+- [x] Rank and expose closest executable market comparisons as clearly labeled
+  near misses, without presenting them as guaranteed arbitrage.
 
 ## Phase 4 — Platform health and persistence
 
@@ -148,7 +154,7 @@ Platform-specific implementation:
   markets.
 - [x] Keep unit tests deterministic and independent of live websites.
 - [x] Run authenticated/public live smoke checks separately from unit tests.
-- [x] Final suite: **18 tests passed**.
+- [x] Final suite: **22 tests passed**.
 - [x] Final Next.js 14.2.35 production build passed.
 - [x] Full live local scan and low-confidence match audit completed.
 
@@ -175,6 +181,8 @@ Platform-specific implementation:
   builder, and `asia-southeast1-eqsg3a`.
 - [x] Final production scan showed six healthy collectors and Stake explicitly
   unavailable.
+- [x] Background scans start on API startup and now run on an exact fixed
+  60-second start-to-start cadence without overlap.
 
 Operational deployment note: Railway variable changes and some Git webhook
 deploys produced a generic Railpack/US-West manifest. The verified deployment
@@ -192,6 +200,13 @@ region. Always inspect the exact deployment manifest before handoff.
 - [x] Next.js upgraded from 14.2.0 to patched 14.2.35.
 - [x] Local `frontend/` is linked to Vercel and production deployment through the
   authenticated Vercel CLI was verified.
+- [x] Main dashboard polls production state every 15 seconds and displays the
+  configured automatic scan cadence.
+- [x] Added the unlinked `/events-inspector` diagnostic route and
+  `/api/events/latest` endpoint for checking every persisted platform event and
+  outcome; no navigation link exposes it in the regular UI.
+- [x] Added a closest-markets explanation when no guaranteed opportunity clears
+  the configured threshold.
 
 ## Acceptance criteria
 

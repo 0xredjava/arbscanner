@@ -105,6 +105,28 @@ def test_polymarket_combines_binary_yes_tokens_into_1x2():
     assert {outcome.token_id for outcome in event.outcomes} == {"home-yes", "away-yes", "draw-yes"}
 
 
+class ClobHttp:
+    def __init__(self):
+        self.body = None
+
+    async def post(self, _url, json=None):
+        self.body = json
+        return {item["token_id"]: {"BUY": "0.50"} for item in json or []}
+
+
+def test_polymarket_clob_enrichment_uses_executable_buy_ask():
+    http = ClobHttp()
+    scraper = PolymarketScraper(settings(), http, None)
+    event = scraper._parse_gamma_event(load("polymarket_event.json"), Sport.SOCCER)
+    assert event is not None
+
+    asyncio.run(scraper._enrich_with_clob_prices([event]))
+
+    assert http.body
+    assert {item["side"] for item in http.body} == {"BUY"}
+    assert {outcome.decimal_odds for outcome in event.outcomes} == {2.0}
+
+
 class KeysetHttp:
     def __init__(self, page_count):
         self.page_count = page_count

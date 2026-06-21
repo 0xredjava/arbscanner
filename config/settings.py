@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
 
     # Fee / slippage assumptions (percent)
-    default_platform_fee_pct: float = 2.0
-    slippage_pct: float = 1.0
+    default_platform_fee_pct: float = 0.0
+    slippage_pct: float = 0.0
     liquidity_buffer_pct: float = 5.0
 
     # Watched sports (comma-separated in .env)

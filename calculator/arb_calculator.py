@@ -23,8 +23,8 @@ class ArbCalculator:
         self,
         min_profit_pct: float = 2.0,
         bankroll: float = 1000.0,
-        default_fee_pct: float = 2.0,
-        slippage_pct: float = 1.0,
+        default_fee_pct: float = 0.0,
+        slippage_pct: float = 0.0,
         liquidity_buffer_pct: float = 5.0,
     ) -> None:
         self.min_profit_pct = min_profit_pct
@@ -44,6 +44,64 @@ class ArbCalculator:
         opportunities.sort(key=lambda a: a.profit_pct, reverse=True)
         logger.info("Found %d arbitrage opportunities", len(opportunities))
         return opportunities
+
+    def closest_markets(
+        self, matches: list[EventMatch], limit: int = 10
+    ) -> list[dict]:
+        """Rank comparable markets, including near misses, for diagnostics."""
+        comparisons: list[dict] = []
+        for match in matches:
+            market_type = match.events[0].market_type
+            required_keys = (
+                ("home", "draw", "away")
+                if market_type == "1x2"
+                else ("yes", "no")
+                if market_type == "prediction"
+                else ("home", "away")
+            )
+            legs = self._best_odds_per_outcome(match, required_keys)
+            if len(legs) != len(required_keys):
+                continue
+            if len({event.platform for _key, _outcome, event in legs}) < 2:
+                continue
+            implied = sum(
+                1.0 / self._effective_odds(outcome, event)[0]
+                for _key, outcome, event in legs
+            )
+            if implied <= 0:
+                continue
+            margin = (1.0 / implied - 1.0) * 100
+            comparisons.append(
+                {
+                    "match_id": match.match_id,
+                    "sport": match.sport.value,
+                    "event_name": f"{match.home_team} vs {match.away_team}",
+                    "league": match.league,
+                    "market_type": market_type,
+                    "margin_pct": round(margin, 4),
+                    "break_even_gap_pct": round(max(0.0, -margin), 4),
+                    "confidence": round(match.confidence, 2),
+                    "platform_count": len({event.platform for event in match.events}),
+                    "legs": [
+                        {
+                            "key": key,
+                            "outcome": outcome.name,
+                            "platform": event.platform.value,
+                            "odds": outcome.decimal_odds,
+                            "effective_odds": round(
+                                self._effective_odds(outcome, event)[0], 6
+                            ),
+                            "execution_cost_pct": round(
+                                self._effective_odds(outcome, event)[1], 4
+                            ),
+                            "url": outcome.url or event.url,
+                        }
+                        for key, outcome, event in legs
+                    ],
+                }
+            )
+        comparisons.sort(key=lambda item: item["margin_pct"], reverse=True)
+        return comparisons[:limit]
 
     def find_intra_platform_arbs(self, events: list[ScrapedEvent]) -> list[ArbitrageOpportunity]:
         """Detect arbs within Polymarket multi-outcome markets (sum of probs < 1)."""
@@ -184,12 +242,13 @@ class ArbCalculator:
         warnings: list[str] = []
         min_liquidity: float | None = None
 
+        execution_costs: list[float] = []
         for _key, outcome, event in legs:
-            fee = self.platform_fees.get(event.platform, self.default_fee_pct)
-            effective_odds = outcome.decimal_odds * (1 - fee / 100) * (1 - self.slippage_pct / 100)
+            effective_odds, execution_cost_pct = self._effective_odds(outcome, event)
             if effective_odds <= 1:
                 return None
             fee_adjusted_probs.append(1.0 / effective_odds)
+            execution_costs.append(execution_cost_pct)
 
             if outcome.liquidity_usd is not None:
                 if min_liquidity is None:
@@ -208,10 +267,11 @@ class ArbCalculator:
         total_stake = self.bankroll
         guaranteed_return = total_stake / total_implied
 
-        for (_key, outcome, event), prob in zip(legs, fee_adjusted_probs):
-            fee = self.platform_fees.get(event.platform, self.default_fee_pct)
+        for (_key, outcome, event), prob, execution_cost_pct in zip(
+            legs, fee_adjusted_probs, execution_costs
+        ):
             stake = guaranteed_return * prob
-            effective_odds = outcome.decimal_odds * (1 - fee / 100)
+            effective_odds = self._effective_odds(outcome, event)[0]
             allocations.append(
                 StakeAllocation(
                     platform=event.platform,
@@ -220,7 +280,7 @@ class ArbCalculator:
                     stake=stake,
                     potential_return=stake * effective_odds,
                     url=outcome.url or event.url,
-                    fee_pct=fee,
+                    fee_pct=execution_cost_pct,
                 )
             )
 
@@ -247,3 +307,33 @@ class ArbCalculator:
             min_liquidity_usd=min_liquidity,
             warnings=warnings,
         )
+
+    def _effective_odds(
+        self, outcome: MarketOutcome, event: ScrapedEvent
+    ) -> tuple[float, float]:
+        """Return immediately executable odds and their equivalent cost percent."""
+        raw_odds = outcome.decimal_odds
+        if raw_odds <= 1:
+            return raw_odds, 0.0
+
+        effective_odds = raw_odds
+        if event.platform == Platform.POLYMARKET:
+            price = 1.0 / raw_odds
+            try:
+                fee_rate = float(outcome.raw.get("fee_rate", 0.0))
+            except (TypeError, ValueError):
+                fee_rate = 0.0
+            # Official taker fee formula per share:
+            # fee = fee_rate * price * (1 - price).
+            cost_per_share = price + fee_rate * price * (1 - price)
+            if cost_per_share > 0:
+                effective_odds = 1.0 / cost_per_share
+        else:
+            platform_fee = self.platform_fees.get(
+                event.platform, self.default_fee_pct
+            )
+            effective_odds *= 1 - platform_fee / 100
+
+        effective_odds *= 1 - self.slippage_pct / 100
+        execution_cost_pct = max(0.0, (1 - effective_odds / raw_odds) * 100)
+        return effective_odds, execution_cost_pct

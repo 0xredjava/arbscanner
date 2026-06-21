@@ -52,6 +52,28 @@ type Scan = {
   opportunity_count?: number;
 };
 
+type ComparisonLeg = {
+  key: string;
+  platform: string;
+  outcome: string;
+  odds: number;
+  effective_odds: number;
+  execution_cost_pct: number;
+  url?: string | null;
+};
+
+type Comparison = {
+  match_id: string;
+  sport: string;
+  event_name: string;
+  league: string;
+  market_type: string;
+  margin_pct: number;
+  break_even_gap_pct: number;
+  platform_count: number;
+  legs: ComparisonLeg[];
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const SPORTS = ["", "soccer", "nba", "nfl", "mlb", "nhl", "tennis"];
 const PLATFORMS = ["", "polymarket", "stake", "bcgame", "shuffle", "cloudbet", "tgcasino", "thunderpick"];
@@ -60,6 +82,8 @@ export default function Dashboard() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [platforms, setPlatforms] = useState<PlatformStatus[]>([]);
   const [scan, setScan] = useState<Scan | null>(null);
+  const [comparisons, setComparisons] = useState<Comparison[]>([]);
+  const [scanInterval, setScanInterval] = useState(60);
   const [running, setRunning] = useState(false);
   const [sport, setSport] = useState("");
   const [platform, setPlatform] = useState("");
@@ -75,23 +99,29 @@ export default function Dashboard() {
       if (platform) params.set("platform", platform);
       if (minProfit) params.set("minProfit", minProfit);
 
-      const [oppsRes, platformRes, scanRes] = await Promise.all([
+      const [oppsRes, closestRes, platformRes, scanRes, healthRes] = await Promise.all([
         fetch(`${API_BASE}/api/opportunities/latest?${params.toString()}`),
+        fetch(`${API_BASE}/api/opportunities/closest?limit=10`),
         fetch(`${API_BASE}/api/platforms`),
-        fetch(`${API_BASE}/api/scans/latest`)
+        fetch(`${API_BASE}/api/scans/latest`),
+        fetch(`${API_BASE}/api/health`)
       ]);
 
-      if (!oppsRes.ok || !platformRes.ok || !scanRes.ok) {
+      if (!oppsRes.ok || !closestRes.ok || !platformRes.ok || !scanRes.ok || !healthRes.ok) {
         throw new Error("API request failed");
       }
 
       const oppsData = await oppsRes.json();
+      const closestData = await closestRes.json();
       const platformData = await platformRes.json();
       const scanData = await scanRes.json();
+      const healthData = await healthRes.json();
       setOpportunities(oppsData.opportunities || []);
+      setComparisons(closestData.comparisons || []);
       setRunning(Boolean(oppsData.running || scanData.running));
       setPlatforms(platformData.platforms || []);
       setScan(scanData.scan || null);
+      setScanInterval(Number(healthData.scan_interval_seconds || 60));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load scanner data");
     }
@@ -121,12 +151,20 @@ export default function Dashboard() {
 
   useEffect(() => {
     void loadData();
+    const timer = window.setInterval(() => void loadData(), 15_000);
+    return () => window.clearInterval(timer);
   }, [sport, platform, minProfit]);
 
   const totals = useMemo(() => {
     const ok = platforms.filter((item) => item.status === "ok").length;
     return { ok };
   }, [platforms]);
+
+  const visibleComparisons = useMemo(() => comparisons.filter((item) => {
+    if (sport && item.sport !== sport) return false;
+    if (platform && !item.legs.some((leg) => leg.platform === platform)) return false;
+    return true;
+  }).slice(0, 5), [comparisons, platform, sport]);
 
   return (
     <main className="shell">
@@ -146,6 +184,7 @@ export default function Dashboard() {
         <Metric label="Events" value={scan?.event_count ?? 0} />
         <Metric label="Opportunities" value={scan?.opportunity_count ?? opportunities.length} />
         <Metric label="Platforms ok" value={`${totals.ok}/${platforms.length || PLATFORMS.length - 1}`} />
+        <Metric label="Auto scan" value={`Every ${scanInterval}s`} />
       </section>
 
       {error ? (
@@ -187,7 +226,13 @@ export default function Dashboard() {
               <span>Legs</span>
             </div>
             {opportunities.length === 0 ? (
-              <div className="empty">No opportunities above the current threshold.</div>
+              <div>
+                <div className="empty">
+                  No guaranteed arbitrage above the configured threshold in this scan.
+                  The closest executable comparisons are shown below and are not betting recommendations.
+                </div>
+                <ClosestMarkets items={visibleComparisons} />
+              </div>
             ) : opportunities.map((item, index) => {
               const key = item.id || item.match_id || index;
               return (
@@ -228,6 +273,28 @@ export default function Dashboard() {
         </aside>
       </section>
     </main>
+  );
+}
+
+function ClosestMarkets({ items }: { items: Comparison[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="closest">
+      <div className="closestTitle">Closest markets - not arbitrage</div>
+      {items.map((item) => (
+        <div className="closestItem" key={item.match_id}>
+          <div>
+            <strong>{item.event_name}</strong>
+            <small>{item.sport} - {item.legs.map((leg) => leg.platform).join(" / ")}</small>
+          </div>
+          <div className={item.margin_pct >= 0 ? "nearPositive" : "nearNegative"}>
+            {item.margin_pct >= 0
+              ? `${item.margin_pct.toFixed(2)}% below configured threshold`
+              : `${item.break_even_gap_pct.toFixed(2)}% from break-even`}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

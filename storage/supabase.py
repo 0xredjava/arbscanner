@@ -115,6 +115,19 @@ class SupabaseStore:
             },
         )
 
+    async def latest_events(self) -> list[dict[str, Any]]:
+        latest = await self.latest_scan()
+        if not latest:
+            return []
+        return await self._select_all(
+            "events",
+            {
+                "select": "platform,sport,event_key,event_id,home_team,away_team,league,start_time,market_type,outcome_name,decimal_odds,implied_prob,fee_adjusted_prob,liquidity_usd,url",
+                "scan_id": f"eq.{latest['id']}",
+                "order": "platform.asc,sport.asc,start_time.asc,event_id.asc",
+            },
+        )
+
     async def _bulk_insert(self, table: str, payload: list[dict[str, Any]]) -> None:
         if not payload:
             return
@@ -137,6 +150,26 @@ class SupabaseStore:
             )
             response.raise_for_status()
             return response.json()
+
+    async def _select_all(
+        self, table: str, params: dict[str, str], page_size: int = 1000
+    ) -> list[dict[str, Any]]:
+        if not self.enabled:
+            return []
+        rows: list[dict[str, Any]] = []
+        async with httpx.AsyncClient(timeout=30) as client:
+            for start in range(0, 100_000, page_size):
+                headers = self._headers()
+                headers["range"] = f"{start}-{start + page_size - 1}"
+                response = await client.get(
+                    self._table_url(table), params=params, headers=headers
+                )
+                response.raise_for_status()
+                page = response.json()
+                rows.extend(page)
+                if len(page) < page_size:
+                    break
+        return rows
 
     def _event_payload(self, scan_id: str, event: NormalizedOdds) -> dict[str, Any]:
         return {
