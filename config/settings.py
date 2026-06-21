@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     default_platform_fee_pct: float = 0.0
     slippage_pct: float = 0.0
     liquidity_buffer_pct: float = 5.0
+    quote_aging_seconds: int = 20
+    quote_ttl_seconds: int = 45
+    execution_safe_opportunities: bool = True
 
     # Watched sports (comma-separated in .env)
     watched_sports: str = "soccer,nba,tennis,nfl,nhl,mlb"

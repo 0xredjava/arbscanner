@@ -12,7 +12,7 @@ import httpx
 from calculator.arb_calculator import ArbCalculator
 from config.settings import Settings
 from matcher.event_matcher import EventMatcher
-from models.odds import ArbitrageOpportunity, NormalizedOdds, ScrapedEvent, Sport
+from models.odds import ArbitrageOpportunity, NormalizedOdds, Platform, ScrapedEvent, Sport
 from normalizer.odds_normalizer import OddsNormalizer
 from notifier.console import ConsoleNotifier
 from scrapers.base import SourceStatusError
@@ -39,6 +39,8 @@ class ArbOrchestrator:
             default_fee_pct=settings.default_platform_fee_pct,
             slippage_pct=settings.slippage_pct,
             liquidity_buffer_pct=settings.liquidity_buffer_pct,
+            quote_aging_seconds=settings.quote_aging_seconds,
+            quote_ttl_seconds=settings.quote_ttl_seconds,
         )
         self.console = ConsoleNotifier()
         self._latest_opportunities: list[ArbitrageOpportunity] = []
@@ -97,6 +99,25 @@ class ArbOrchestrator:
         # Detect cross-platform arbs
         cross_arbs = self.calculator.find_arbitrages(matches)
 
+        # A profitable first pass is only a candidate. Refresh the relevant CLOB
+        # books, then rebuild the calculations so published allocations are based
+        # on a final immediately-pre-publication quote.
+        if cross_arbs and any(
+            leg.platform == Platform.POLYMARKET
+            for opportunity in cross_arbs
+            for leg in opportunity.legs
+        ):
+            poly_scraper = next(
+                (scraper for scraper in self.scrapers if scraper.platform == Platform.POLYMARKET),
+                None,
+            )
+            if poly_scraper and hasattr(poly_scraper, "_enrich_with_clob_prices"):
+                poly_events = [event for event in all_events if event.platform == Platform.POLYMARKET]
+                await poly_scraper._enrich_with_clob_prices(poly_events)
+                self._latest_normalized = self.normalizer.normalize_all(all_events)
+                self._latest_comparisons = self.calculator.closest_markets(matches, limit=20)
+                cross_arbs = self.calculator.find_arbitrages(matches)
+
         # Deduplicate by match_id
         seen: set[str] = set()
         opportunities: list[ArbitrageOpportunity] = []
@@ -133,6 +154,11 @@ class ArbOrchestrator:
         }
         try:
             events = self._filter_moneyline_events(await scraper.fetch_events())
+            quote_time = datetime.now(timezone.utc)
+            for event in events:
+                for outcome in event.outcomes:
+                    if outcome.quote_fetched_at is None:
+                        outcome.quote_fetched_at = quote_time
             status["event_count"] = len(events)
             status["response_count"] = scraper.response_count
             if scraper.data_timestamp:

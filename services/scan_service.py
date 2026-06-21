@@ -147,13 +147,28 @@ class ScanService:
         sport: str | None = None,
         platform: str | None = None,
         min_profit: float | None = None,
+        country: str | None = None,
+        competition: str | None = None,
     ) -> list[dict[str, Any]]:
         stored = await self.store.latest_opportunities()
         if not stored and self._latest_snapshot:
             stored = self._latest_snapshot.get("opportunities", [])
 
+        fingerprints = [str(item.get("fingerprint") or "") for item in stored]
+        lifecycle = await self.store.opportunity_lifecycle_map(
+            [fingerprint for fingerprint in fingerprints if fingerprint]
+        )
         results = []
+        now = datetime.now(timezone.utc)
         for item in stored:
+            item = dict(item)
+            history = lifecycle.get(str(item.get("fingerprint") or ""), {})
+            item["first_found_at"] = history.get("first_found_at") or item.get("detected_at")
+            item["last_seen_at"] = history.get("last_seen_at") or item.get("detected_at")
+            expires = _parse_datetime(item.get("quote_expires_at"))
+            if expires and expires <= now:
+                item["freshness_status"] = "expired"
+                item["execution_safe"] = False
             legs = item.get("legs") or []
             if sport and item.get("sport") != sport:
                 continue
@@ -161,8 +176,42 @@ class ScanService:
                 continue
             if platform and not any(leg.get("platform") == platform for leg in legs):
                 continue
+            if country and item.get("country") != country:
+                continue
+            if competition and item.get("competition") != competition:
+                continue
             results.append(item)
         return results
+
+    async def opportunity_history(self, limit: int = 100) -> list[dict[str, Any]]:
+        return await self.store.opportunity_history(limit=limit)
+
+    async def opportunity_observations(
+        self, fingerprint: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        return await self.store.opportunity_observations(fingerprint, limit=limit)
+
+    async def coverage(self) -> dict[str, Any]:
+        rows = await self.store.latest_events()
+        events = group_event_rows(rows)
+        if not events:
+            events = [
+                {
+                    "sport": event.sport.value,
+                    "country": event.country,
+                    "competition": event.competition or event.league,
+                    "platform": event.platform.value,
+                }
+                for event in self.orchestrator.latest_events
+            ]
+        return {
+            "scope_label": "Worldwide where enabled sources provide markets",
+            "sports": sorted({str(event.get("sport") or "") for event in events if event.get("sport")}),
+            "countries": sorted({str(event.get("country") or "International / unknown") for event in events}),
+            "competitions": sorted({str(event.get("competition") or event.get("league") or "Unknown") for event in events}),
+            "platforms": sorted({str(event.get("platform") or "") for event in events if event.get("platform")}),
+            "event_count": len(events),
+        }
 
     async def latest_comparisons(self, limit: int = 10) -> list[dict[str, Any]]:
         comparisons = self.orchestrator.latest_comparisons
@@ -229,6 +278,8 @@ def group_event_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "home_team": row.get("home_team"),
                 "away_team": row.get("away_team"),
                 "league": row.get("league"),
+                "country": row.get("country") or "International / unknown",
+                "competition": row.get("competition") or row.get("league"),
                 "start_time": row.get("start_time"),
                 "market_type": row.get("market_type"),
                 "url": row.get("url"),
@@ -242,6 +293,8 @@ def group_event_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "implied_prob": row.get("implied_prob"),
                 "fee_adjusted_prob": row.get("fee_adjusted_prob"),
                 "liquidity_usd": row.get("liquidity_usd"),
+                "quote_fetched_at": row.get("quote_fetched_at"),
+                "source_timestamp": row.get("source_timestamp"),
                 "url": row.get("url"),
             }
         )
@@ -254,3 +307,13 @@ def group_event_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             event.get("home_team") or "",
         ),
     )
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None

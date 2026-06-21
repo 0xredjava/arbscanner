@@ -1,10 +1,206 @@
-# Sportsbook Data Integration — Final Implementation Record
+# Arbitrage Scanner - Implementation Plan and Integration Record
 
 ## Status
 
-**Completed and deployed on 2026-06-21.**
+**Implemented locally on 2026-06-21; production migration and rollout remain.**
 
-The implementable project scope is finished. Six platforms return current,
+The source-integration scope below was completed and deployed on 2026-06-21,
+but the product is not considered complete as an actionable arbitrage tool. A
+reported Cuiaba EC vs Londrina EC opportunity exposed gaps between a displayed
+Polymarket quote and the price/cost a user could actually execute, and the
+dashboard does not yet teach a new user how to place and verify every leg. The
+work in the next section is now the highest-priority implementation scope.
+
+## Reopened scope - actionable, auditable opportunities
+
+### Confirmed product findings
+
+- [x] The scanner is **not limited to Brazilian games**. The default configured
+  scope is worldwide soccer plus NBA, tennis, NFL, NHL, and MLB. A Brazilian
+  Serie B event appeared because it was an overlapping event returned by the
+  enabled sources, not because Brazil is a country filter.
+- [x] The current dashboard shows sport and source league, but not country or a
+  clear coverage explanation. This makes worldwide coverage look accidental.
+- [x] `detected_at` is already generated and persisted on each opportunity, and
+  scan start/finish timestamps are persisted, but opportunity cards do not show
+  the detection time and the API only returns opportunities from the latest
+  scan. This is insufficient to prove when an opportunity first appeared, how
+  long it lasted, or whether a user could have acted on it.
+- [x] The current Polymarket adapter records one top-of-book BUY quote per
+  outcome and the calculator sizes the full bankroll as if every share can fill
+  at that one price. It does not retain the order-book levels, quote timestamp,
+  average fill price, or a post-sizing revalidation result.
+- [x] The reported Londrina card displayed decimal odds `6.67`, equivalent to a
+  15-cent contract, while the user observed an 18-cent executable price. At 18
+  cents, a $162.14 order buys about 900.78 shares and has a $900.78 gross winning
+  payout before fees, not the card's displayed guaranteed return. Whether the
+  quote moved after detection or the original quote was wrong cannot be proven
+  from the data currently saved; the missing quote history is itself a defect.
+
+### Phase 7 - execution-safe pricing and stake math (P0)
+
+- [x] Replace single-price Polymarket enrichment with an order-book quote that
+  retains all ask levels needed to fill the proposed size, the CLOB/source
+  timestamp, fetch timestamp, token ID, market ID, best ask, available size at
+  best ask, and raw response needed for later audit.
+- [x] Calculate Polymarket legs in native prediction-market units: limit price,
+  dollars spent, shares/contracts bought, volume-weighted average fill price,
+  gross payout if the outcome wins, fee, net payout, and unfilled remainder.
+  Keep sportsbook legs in decimal-odds units and explicitly label their stake
+  and payout semantics.
+- [x] Size the arb against executable depth at every required price level. Scale
+  the entire opportunity down to the largest common bankroll that all legs can
+  fill; reject it if depth, minimum order size, precision, or configured safety
+  buffer makes the guaranteed profit fall below the threshold.
+- [x] Use conservative currency rounding for each platform and recompute the
+  worst-case net payout after rounding. Never derive the displayed guaranteed
+  return from unrounded internal allocations.
+- [x] Perform a fresh quote-and-depth revalidation after stake sizing and just
+  before returning an opportunity. Reject or mark the card expired if any leg's
+  executable price, available size, market status, or settlement mapping has
+  changed beyond tolerance.
+- [x] Define a short quote TTL and show `fresh`, `aging`, or `expired` based on
+  the oldest leg quote. Do not label stale or partially fillable cards as
+  guaranteed arbitrage.
+- [x] Store the calculation inputs and outputs as an immutable audit snapshot,
+  including raw odds/price, effective odds, depth used, fees, slippage buffer,
+  rounded stake, expected payout per leg, and worst-case profit.
+- [ ] Investigate the historical Cuiaba EC vs Londrina EC market using saved
+  production identifiers if available. Record whether the 15-cent value came
+  from Gamma, the CLOB ask, a moving quote, or a response-parsing error. Do not
+  treat this historical diagnosis as a blocker for fixing the unsafe model.
+
+### Phase 8 - beginner-friendly opportunity experience (P0)
+
+- [x] Redesign each opportunity as a guided bet slip instead of a compact odds
+  table. Lead with event, competition/country, kickoff, first found, last
+  verified, quote age, executable bankroll, and a prominent freshness state.
+- [x] Add a plain-language `How to use this opportunity` sequence with one
+  numbered step per leg. Each step must show platform, exact outcome to select,
+  bet type (`moneyline/1X2` or `YES contract`), amount to spend, displayed price
+  or minimum acceptable decimal odds, expected shares where applicable, payout,
+  and a direct market link.
+- [x] Add an editable bankroll control. Recalculate allocations from the user's
+  amount, cap it to executable liquidity, and explain when the safe maximum is
+  lower than the requested bankroll.
+- [x] Show an outcome matrix proving coverage: Cuiaba win, draw, and Londrina
+  win each point to exactly one leg and each row shows the same conservative net
+  payout. Block display if the outcome set is incomplete or duplicated.
+- [x] Separate `price when found`, `price now`, and `minimum safe price`; visually
+  flag a changed leg and disable the action checklist when the arb no longer
+  clears the threshold.
+- [x] Replace ambiguous labels such as `Stake $1000` and `Return $1054.08` with
+  `Total amount across all bets`, `Lowest payout across outcomes`, and
+  `Guaranteed profit after modeled costs`, each with a short tooltip.
+- [x] Add a pre-bet checklist: verify event/teams and kickoff, confirm all three
+  settlement rules match (including overtime/void rules), confirm current
+  prices and available size, place time-sensitive legs first, and stop if any
+  displayed value changes. Make clear that the scanner does not place bets.
+- [x] Display source and calculation warnings beside the affected leg rather
+  than as one generic sentence below the card.
+- [x] Add responsive/mobile layouts and accessible states for fresh, changed,
+  expired, incomplete, and liquidity-limited opportunities.
+
+### Phase 9 - geography and coverage clarity (P1)
+
+- [x] Add normalized country/region and competition fields to events instead of
+  relying only on free-text league names. Preserve the source values for audit.
+- [x] Show a dashboard coverage summary generated from the latest successful
+  scan: enabled sports, countries/regions seen, competitions seen, platforms,
+  and explicit source limitations. Label it `worldwide where sources provide
+  markets`, not `all games worldwide`.
+- [x] Add sport, country/region, competition, and platform filters. Derive
+  filter options from collected events rather than a hard-coded Brazil or league
+  list.
+- [x] Add coverage tests proving that no implicit Brazil-only filter exists and
+  that international soccer events can pass collection, matching, and display.
+
+### Phase 10 - opportunity lifecycle and timing evidence (P0)
+
+- [x] Introduce a stable opportunity fingerprint based on canonical event,
+  market, outcomes, and selected platforms. Do not use a per-scan database row
+  ID as the lifecycle identity.
+- [x] Add an `opportunity_observations` time-series table with scan ID,
+  fingerprint, observed/detected time, quote times, prices, depth, allocations,
+  profit, and state. Observations are append-only and retained after later scans
+  find no opportunity.
+- [x] Add lifecycle fields/records for `first_found_at`, `last_seen_at`,
+  `last_verified_at`, `ended_at`, observation count, and end reason (`price
+  moved`, `liquidity`, `market closed`, `source unavailable`, or `not matched`).
+- [x] Distinguish timestamps clearly: scan started, source data time, quote
+  fetched, opportunity first found, last verified, and event kickoff. Store UTC;
+  render in the user's local timezone with the UTC value available on hover or
+  detail view.
+- [x] Keep the existing latest endpoint for the dashboard, and add opportunity
+  history/detail endpoints that can return lifecycle records and observations by
+  fingerprint. Include scan IDs so every card can be traced to platform health
+  and source collection results.
+- [x] Add a history view with active/expired status, duration, first-found and
+  last-seen times, profit/price changes, and a compact timeline. This is the
+  primary evidence for whether the scanner found a real, actionable window.
+- [x] Add retention/indexing policy and migration/backfill behavior. Existing
+  rows may use `detected_at` as an explicitly labeled approximate first-found
+  value; never invent missing quote timestamps.
+
+### Phase 11 - verification and rollout
+
+- [x] Add deterministic calculator tests for the reported three-leg example at
+  both 15 cents and 18 cents, multi-level partial fills, fees, conservative
+  rounding, bankroll scaling, quote expiry, price movement, and insufficient
+  depth.
+- [x] Add parser contract tests using realistic Polymarket order-book responses,
+  including absent books, crossed/empty books, malformed levels, and source
+  timestamps. Do not use a mock shape invented only to fit the implementation.
+- [ ] Add API/storage tests for append-only observations, stable fingerprints,
+  first/last timestamps, disappearance/end reasons, history retention, and
+  concurrent/repeated scans.
+- [ ] Add frontend tests for the guided instructions, outcome coverage matrix,
+  local-time rendering, changing/expired states, requested-bankroll cap, and
+  exact per-leg payout math.
+- [ ] Run shadow mode before enabling the new cards: persist observations and
+  compare the indicated fills with later CLOB/order-book states without calling
+  an opportunity actionable.
+- [ ] Add production telemetry for quote age, revalidation failures, insufficient
+  depth, price movement, observation duration, and opportunities rejected by
+  execution checks.
+- [ ] Roll out behind an `execution_safe_opportunities` feature flag. Remove the
+  old guaranteed-return presentation only after migrations, history endpoints,
+  tests, shadow validation, and mobile/browser review pass.
+
+### Reopened acceptance criteria
+
+- [x] A user can tell from the dashboard that scanning is multi-sport and not
+  Brazil-only, and can inspect/filter the actual countries and competitions
+  covered by the latest data.
+- [x] Every displayed opportunity shows when it was first found, when each quote
+  was fetched, when it was last revalidated, its current age/state, and the scan
+  that produced the observation.
+- [x] For every leg, displayed spend, odds/price, shares where relevant, fees,
+  and net payout reconcile to the cent. The lowest leg payout equals the summary
+  payout after conservative rounding.
+- [x] An 18-cent Polymarket contract cannot be presented or allocated as a
+  15-cent/6.67-odds fill, and the full suggested order must be supported by the
+  retained executable order-book depth.
+- [x] A beginner can follow a numbered set of platform-specific steps and verify
+  that all possible match outcomes are covered before placing anything.
+- [x] Opportunity history remains queryable after the window disappears and is
+  sufficient to distinguish a real short-lived arb from stale or incorrect
+  data.
+- [x] No card uses `guaranteed` when a quote is expired, depth is insufficient,
+  settlement mapping is unverified, or the final revalidation failed.
+
+### Implementation order
+
+1. Freeze the old card's `guaranteed` claim and add visible detection/quote-age
+   warnings.
+2. Implement executable depth snapshots, native Polymarket units, conservative
+   sizing, and final revalidation.
+3. Add lifecycle migrations, append-only observations, and history APIs.
+4. Build the guided bet-slip UI, timing/history views, and coverage filters.
+5. Run deterministic tests and production shadow validation, then enable the
+   feature flag.
+
+The original source-integration scope described below is finished. Six platforms return current,
 validated pre-match odds in production. Stake is the only non-collecting
 platform and is intentionally reported as `unavailable`: no compliant public,
 no-login sportsbook source was found, and the project does not use sessions,

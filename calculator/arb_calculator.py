@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
-from datetime import datetime, timezone
+import math
+from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from models.odds import (
     ArbitrageOpportunity,
@@ -26,12 +28,16 @@ class ArbCalculator:
         default_fee_pct: float = 0.0,
         slippage_pct: float = 0.0,
         liquidity_buffer_pct: float = 5.0,
+        quote_aging_seconds: int = 20,
+        quote_ttl_seconds: int = 45,
     ) -> None:
         self.min_profit_pct = min_profit_pct
         self.bankroll = bankroll
         self.default_fee_pct = default_fee_pct
         self.slippage_pct = slippage_pct
         self.liquidity_buffer_pct = liquidity_buffer_pct
+        self.quote_aging_seconds = quote_aging_seconds
+        self.quote_ttl_seconds = quote_ttl_seconds
         self.normalizer = OddsNormalizer(default_fee_pct, slippage_pct)
         self.platform_fees = OddsNormalizer.PLATFORM_FEES
 
@@ -139,6 +145,9 @@ class ArbCalculator:
             league=match.league,
             market_type=match.events[0].market_type,
             legs=best_legs,
+            start_time=match.start_time,
+            country=match.events[0].country,
+            competition=match.league,
         )
 
     def _best_odds_per_outcome(
@@ -210,6 +219,9 @@ class ArbCalculator:
             league=match.league,
             market_type=match.events[0].market_type,
             legs=best_legs,
+            start_time=match.start_time,
+            country=match.events[0].country,
+            competition=match.league,
         )
 
     def _check_single_event_arb(self, event: ScrapedEvent) -> ArbitrageOpportunity | None:
@@ -223,6 +235,9 @@ class ArbCalculator:
             league=event.league,
             market_type=event.market_type,
             legs=legs,
+            start_time=event.start_time,
+            country=event.country,
+            competition=event.competition,
         )
 
     def _calculate_arb(
@@ -233,22 +248,35 @@ class ArbCalculator:
         league: str,
         market_type: str,
         legs: list[tuple[str, MarketOutcome, ScrapedEvent]],
+        start_time: datetime | None = None,
+        country: str = "",
+        competition: str = "",
     ) -> ArbitrageOpportunity | None:
         if len(legs) < 2:
             return None
 
         fee_adjusted_probs: list[float] = []
-        allocations: list[StakeAllocation] = []
         warnings: list[str] = []
         min_liquidity: float | None = None
 
         execution_costs: list[float] = []
+        calculation_time = datetime.now(timezone.utc)
         for _key, outcome, event in legs:
             effective_odds, execution_cost_pct = self._effective_odds(outcome, event)
             if effective_odds <= 1:
                 return None
             fee_adjusted_probs.append(1.0 / effective_odds)
             execution_costs.append(execution_cost_pct)
+
+            if event.platform == Platform.POLYMARKET and not outcome.ask_levels:
+                return None
+            if (
+                event.platform == Platform.POLYMARKET
+                and outcome.quote_fetched_at
+                and (calculation_time - outcome.quote_fetched_at).total_seconds()
+                > self.quote_ttl_seconds
+            ):
+                return None
 
             if outcome.liquidity_usd is not None:
                 if min_liquidity is None:
@@ -264,25 +292,66 @@ class ArbCalculator:
         if profit_pct < self.min_profit_pct:
             return None
 
-        total_stake = self.bankroll
-        guaranteed_return = total_stake / total_implied
+        # Solve for a common winning payout using actual CLOB ask depth. The cost
+        # function is monotonic, so binary search also scales the opportunity to
+        # the largest safely executable bankroll when depth is the limiting leg.
+        depth_cap = min(
+            (
+                sum(level.size for level in outcome.ask_levels)
+                * (1 - self.liquidity_buffer_pct / 100)
+                for _key, outcome, event in legs
+                if event.platform == Platform.POLYMARKET
+            ),
+            default=self.bankroll * 10,
+        )
+        low, high = 0.0, max(0.0, min(self.bankroll * 10, depth_cap))
+        best_allocations: list[StakeAllocation] | None = None
+        for _ in range(60):
+            target = (low + high) / 2
+            candidate = [
+                self._allocation_for_target(key, outcome, event, target, cost_pct)
+                for (key, outcome, event), cost_pct in zip(legs, execution_costs)
+            ]
+            if any(allocation is None for allocation in candidate):
+                high = target
+                continue
+            allocations = [allocation for allocation in candidate if allocation]
+            if sum(allocation.stake for allocation in allocations) <= self.bankroll:
+                low = target
+                best_allocations = allocations
+            else:
+                high = target
 
-        for (_key, outcome, event), prob, execution_cost_pct in zip(
-            legs, fee_adjusted_probs, execution_costs
-        ):
-            stake = guaranteed_return * prob
-            effective_odds = self._effective_odds(outcome, event)[0]
-            allocations.append(
-                StakeAllocation(
-                    platform=event.platform,
-                    outcome_name=outcome.name,
-                    decimal_odds=outcome.decimal_odds,
-                    stake=stake,
-                    potential_return=stake * effective_odds,
-                    url=outcome.url or event.url,
-                    fee_pct=execution_cost_pct,
+        if not best_allocations:
+            return None
+        allocations = best_allocations
+        total_stake = round(sum(allocation.stake for allocation in allocations), 2)
+        guaranteed_return = round(min(allocation.net_payout for allocation in allocations), 2)
+        guaranteed_profit = round(guaranteed_return - total_stake, 2)
+        profit_pct = guaranteed_profit / total_stake * 100 if total_stake else 0.0
+        if profit_pct < self.min_profit_pct:
+            return None
+        minimum_allowed_payout = total_stake * (1 + self.min_profit_pct / 100)
+        for allocation in allocations:
+            if allocation.bet_type == "sportsbook":
+                effective_factor = (
+                    allocation.net_payout / allocation.gross_payout
+                    if allocation.gross_payout > 0 else 1.0
                 )
-            )
+                allocation.minimum_decimal_odds = round(
+                    minimum_allowed_payout
+                    / max(allocation.stake * effective_factor, 0.000001),
+                    4,
+                )
+            elif allocation.shares:
+                other_cost = total_stake - allocation.stake
+                maximum_leg_cost = (
+                    allocation.net_payout / (1 + self.min_profit_pct / 100)
+                ) - other_cost
+                allocation.maximum_price = round(
+                    max(0.0, min(0.99, (maximum_leg_cost - allocation.fee_amount) / allocation.shares)),
+                    4,
+                )
 
         if min_liquidity is not None:
             max_stake = min(min_liquidity * (1 - self.liquidity_buffer_pct / 100), total_stake)
@@ -290,7 +359,26 @@ class ArbCalculator:
                 warnings.append(f"Low liquidity: ${min_liquidity:.0f} available")
 
         if any(a.platform == Platform.POLYMARKET for a in allocations):
-            warnings.append("Polymarket: verify CLOB spread and settlement rules")
+            warnings.append("Verify that Polymarket and sportsbook settlement/void rules match")
+
+        now = datetime.now(timezone.utc)
+        quote_times = [
+            allocation.quote_fetched_at for allocation in allocations if allocation.quote_fetched_at
+        ]
+        oldest_quote = min(quote_times) if quote_times else now
+        age = max(0.0, (now - oldest_quote).total_seconds())
+        freshness = "fresh" if age <= self.quote_aging_seconds else "aging"
+        expires_at = oldest_quote + timedelta(seconds=self.quote_ttl_seconds)
+        fingerprint_source = "|".join(
+            [
+                sport.value,
+                self.normalizer.clean_team_name(event_name),
+                start_time.isoformat() if start_time else "",
+                market_type,
+                *sorted(f"{key}:{event.platform.value}" for key, _outcome, event in legs),
+            ]
+        )
+        fingerprint = hashlib.sha256(fingerprint_source.encode()).hexdigest()[:24]
 
         return ArbitrageOpportunity(
             match_id=match_id,
@@ -301,12 +389,124 @@ class ArbCalculator:
             profit_pct=profit_pct,
             total_stake=total_stake,
             guaranteed_return=guaranteed_return,
-            guaranteed_profit=guaranteed_return - total_stake,
+            guaranteed_profit=guaranteed_profit,
             legs=allocations,
             detected_at=datetime.now(timezone.utc),
             min_liquidity_usd=min_liquidity,
             warnings=warnings,
+            fingerprint=fingerprint,
+            country=country,
+            competition=competition or league,
+            start_time=start_time,
+            last_verified_at=now,
+            quote_expires_at=expires_at,
+            freshness_status=freshness,
+            execution_safe=True,
+            requested_bankroll=self.bankroll,
         )
+
+    def _allocation_for_target(
+        self,
+        outcome_key: str,
+        outcome: MarketOutcome,
+        event: ScrapedEvent,
+        target_payout: float,
+        execution_cost_pct: float,
+    ) -> StakeAllocation | None:
+        if target_payout <= 0:
+            return None
+        if event.platform != Platform.POLYMARKET:
+            effective_odds = self._effective_odds(outcome, event)[0]
+            stake = self._round_up_cents(target_payout / effective_odds)
+            net_payout = round(stake * effective_odds, 2)
+            return StakeAllocation(
+                platform=event.platform,
+                outcome_name=outcome.name,
+                outcome_key=outcome_key,
+                decimal_odds=outcome.decimal_odds,
+                stake=stake,
+                potential_return=net_payout,
+                gross_payout=round(stake * outcome.decimal_odds, 2),
+                net_payout=net_payout,
+                url=outcome.url or event.url,
+                fee_pct=execution_cost_pct,
+                bet_type="sportsbook",
+                quote_fetched_at=outcome.quote_fetched_at,
+                source_timestamp=outcome.source_timestamp,
+                selection_id=outcome.selection_id,
+            )
+
+        shares_needed = math.ceil(target_payout * 100 - 1e-9) / 100
+        remaining = shares_needed
+        base_cost = 0.0
+        fee_amount = 0.0
+        depth_used: list[dict[str, float]] = []
+        fee_rate = self._safe_fee_rate(outcome)
+        buffer_factor = 1 - self.liquidity_buffer_pct / 100
+        for level in sorted(outcome.ask_levels, key=lambda item: item.price):
+            available = level.size * buffer_factor
+            take = min(remaining, available)
+            if take <= 0:
+                continue
+            base_cost += take * level.price
+            fee_amount += take * fee_rate * level.price * (1 - level.price)
+            depth_used.append({"price": level.price, "shares": round(take, 4)})
+            remaining -= take
+            if remaining <= 0.000001:
+                break
+        if remaining > 0.000001:
+            return None
+        cost_before_rounding = (base_cost + fee_amount) / max(
+            1 - self.slippage_pct / 100, 0.000001
+        )
+        stake = self._round_up_cents(cost_before_rounding)
+        minimum_order = self._float(outcome.raw.get("minimum_order_size"))
+        if minimum_order and shares_needed < minimum_order:
+            return None
+        average_price = base_cost / shares_needed
+        return StakeAllocation(
+            platform=event.platform,
+            outcome_name=outcome.name,
+            outcome_key=outcome_key,
+            decimal_odds=1 / average_price,
+            stake=stake,
+            potential_return=round(shares_needed, 2),
+            gross_payout=round(shares_needed, 2),
+            net_payout=round(shares_needed, 2),
+            url=outcome.url or event.url,
+            fee_pct=execution_cost_pct,
+            bet_type="prediction_yes",
+            price=outcome.ask_levels[0].price,
+            average_price=average_price,
+            shares=shares_needed,
+            fee_amount=fee_amount,
+            quote_fetched_at=outcome.quote_fetched_at,
+            source_timestamp=outcome.source_timestamp,
+            best_price_size=outcome.ask_levels[0].size,
+            depth_used=depth_used,
+            available_depth=[
+                {"price": level.price, "shares": level.size}
+                for level in sorted(outcome.ask_levels, key=lambda item: item.price)
+            ],
+            token_id=outcome.token_id,
+            selection_id=outcome.selection_id,
+            maximum_price=depth_used[-1]["price"] if depth_used else None,
+            warnings=["Confirm this YES market has the same settlement and void rules as the sportsbook legs"],
+        )
+
+    @staticmethod
+    def _round_up_cents(value: float) -> float:
+        return math.ceil(value * 100 - 1e-9) / 100
+
+    @staticmethod
+    def _float(value) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _safe_fee_rate(self, outcome: MarketOutcome) -> float:
+        return max(0.0, self._float(outcome.raw.get("fee_rate")))
 
     def _effective_odds(
         self, outcome: MarketOutcome, event: ScrapedEvent

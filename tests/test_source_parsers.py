@@ -111,7 +111,21 @@ class ClobHttp:
 
     async def post(self, _url, json=None):
         self.body = json
-        return {item["token_id"]: {"BUY": "0.50"} for item in json or []}
+        return [
+            {
+                "asset_id": item["token_id"],
+                "market": "condition-1",
+                "timestamp": "1782000000000",
+                "min_order_size": "5",
+                "tick_size": "0.01",
+                "bids": [{"price": "0.49", "size": "100"}],
+                "asks": [
+                    {"price": "0.52", "size": "40"},
+                    {"price": "0.50", "size": "100"},
+                ],
+            }
+            for item in json or []
+        ]
 
 
 def test_polymarket_clob_enrichment_uses_executable_buy_ask():
@@ -123,8 +137,10 @@ def test_polymarket_clob_enrichment_uses_executable_buy_ask():
     asyncio.run(scraper._enrich_with_clob_prices([event]))
 
     assert http.body
-    assert {item["side"] for item in http.body} == {"BUY"}
+    assert all(set(item) == {"token_id"} for item in http.body)
     assert {outcome.decimal_odds for outcome in event.outcomes} == {2.0}
+    assert all(outcome.ask_levels[0].price == 0.5 for outcome in event.outcomes)
+    assert all(outcome.ask_levels[0].size == 100 for outcome in event.outcomes)
 
 
 class KeysetHttp:

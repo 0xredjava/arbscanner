@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from calculator.arb_calculator import ArbCalculator
 from matcher.event_matcher import EventMatcher
-from models.odds import MarketOutcome, Platform, ScrapedEvent, Sport
+from models.odds import MarketOutcome, OrderBookLevel, Platform, ScrapedEvent, Sport
 from normalizer.odds_normalizer import OddsNormalizer
 
 
@@ -166,3 +166,80 @@ def test_polymarket_taker_fee_reduces_effective_odds():
 
     assert round(effective, 6) == round(1 / (0.5 + 0.03 * 0.5 * 0.5), 6)
     assert cost_pct > 0
+
+
+def londrina_match(away_price=0.18, away_depth=10_000, quote_time=None):
+    quote_time = quote_time or datetime.now(timezone.utc)
+    sportsbook = event(
+        Platform.THUNDERPICK,
+        "Cuiaba EC",
+        "Londrina EC",
+        [("Cuiaba EC", 1.89), ("Draw", 3.0), ("Londrina EC", 4.0)],
+        market_type="1x2",
+        sport=Sport.SOCCER,
+        league="Brazil Serie B",
+    )
+    polymarket = event(
+        Platform.POLYMARKET,
+        "Cuiaba EC",
+        "Londrina EC",
+        [("Cuiaba EC", 1.7), ("Draw", 1 / 0.26), ("Londrina EC", 1 / away_price)],
+        market_type="1x2",
+        sport=Sport.SOCCER,
+        league="brazil-serie-b",
+    )
+    for outcome in polymarket.outcomes:
+        price = 0.26 if outcome.name == "Draw" else away_price if outcome.name == "Londrina EC" else 0.60
+        size = away_depth if outcome.name == "Londrina EC" else 10_000
+        outcome.ask_levels = [OrderBookLevel(price=price, size=size)]
+        outcome.quote_fetched_at = quote_time
+        outcome.token_id = f"token-{outcome.name}"
+        outcome.raw["minimum_order_size"] = 5
+    return EventMatcher(threshold=75).match_events([sportsbook, polymarket])
+
+
+def test_polymarket_eighteen_cent_leg_reconciles_cost_shares_and_payout():
+    opportunity = ArbCalculator(
+        min_profit_pct=1, bankroll=1000, liquidity_buffer_pct=0
+    ).find_arbitrages(londrina_match())[0]
+    leg = next(item for item in opportunity.legs if item.outcome_name == "Londrina EC")
+
+    assert leg.price == 0.18
+    assert abs(leg.stake / 0.18 - (leg.shares or 0)) < 0.06
+    assert leg.net_payout == leg.shares
+    assert round(162.14 / 0.18, 2) == 900.78
+    assert opportunity.guaranteed_return == min(item.net_payout for item in opportunity.legs)
+
+
+def test_polymarket_depth_scales_down_entire_opportunity():
+    opportunity = ArbCalculator(
+        min_profit_pct=1, bankroll=1000, liquidity_buffer_pct=5
+    ).find_arbitrages(londrina_match(away_depth=200))[0]
+
+    assert opportunity.total_stake < 1000
+    away = next(item for item in opportunity.legs if item.outcome_name == "Londrina EC")
+    assert (away.shares or 0) <= 190
+
+
+def test_expired_polymarket_quote_is_rejected():
+    stale = datetime.now(timezone.utc) - timedelta(minutes=2)
+    calculator = ArbCalculator(min_profit_pct=1, bankroll=1000, quote_ttl_seconds=45)
+
+    assert calculator.find_arbitrages(londrina_match(quote_time=stale)) == []
+
+
+def test_opportunity_fingerprint_is_stable_across_observations():
+    calculator = ArbCalculator(min_profit_pct=1, bankroll=1000, liquidity_buffer_pct=0)
+    first = calculator.find_arbitrages(londrina_match())[0]
+    second = calculator.find_arbitrages(londrina_match())[0]
+
+    assert first.fingerprint == second.fingerprint
+    assert first.detected_at != second.detected_at
+
+
+def test_geography_is_not_implicitly_brazil_only():
+    brazil = event(Platform.THUNDERPICK, "A", "B", [("A", 2), ("B", 2)], league="Brazil Serie B")
+    england = event(Platform.THUNDERPICK, "C", "D", [("C", 2), ("D", 2)], league="Premier League")
+
+    assert brazil.country == "Brazil"
+    assert england.country == "England"

@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from config.settings import Settings
-from models.odds import MarketOutcome, Platform, ScrapedEvent, Sport
+from models.odds import MarketOutcome, OrderBookLevel, Platform, ScrapedEvent, Sport
 from scrapers.base import BaseScraper
 from utils.http import AsyncHttpClient
 from utils.proxy import ProxyRotator
@@ -190,6 +190,7 @@ class PolymarketScraper(BaseScraper):
                     raw={
                         "gamma_price": price,
                         "fee_rate": self._market_fee_rate(market),
+                        "market_id": str(market.get("conditionId") or market.get("id") or ""),
                     },
                 )
             )
@@ -216,7 +217,7 @@ class PolymarketScraper(BaseScraper):
         )
 
     async def _enrich_with_clob_prices(self, events: list[ScrapedEvent]) -> None:
-        """Fetch best ask prices from CLOB for more accurate executable odds."""
+        """Fetch executable CLOB books and retain enough ask depth to size orders."""
         token_ids = []
         token_map: dict[str, tuple[ScrapedEvent, MarketOutcome]] = {}
         for event in events:
@@ -228,29 +229,63 @@ class PolymarketScraper(BaseScraper):
         if not token_ids:
             return
 
-        # Batch price requests (CLOB supports POST /prices)
+        # CLOB supports batch order-book requests. A best price without its size
+        # is not sufficient to call a bankroll-sized opportunity executable.
         batch_size = 50
         for i in range(0, len(token_ids), batch_size):
             batch = token_ids[i : i + batch_size]
             try:
-                # BUY returns the lowest ask: the executable price paid to acquire
-                # the outcome token. SELL returns the bid and would overstate odds.
-                body = [{"token_id": tid, "side": "BUY"} for tid in batch]
-                prices_data = await self.http.post(f"{self.clob_url}/prices", json=body)
+                body = [{"token_id": tid} for tid in batch]
+                books_data = await self.http.post(f"{self.clob_url}/books", json=body)
                 self.response_count += 1
-                if isinstance(prices_data, dict):
-                    for tid, price_value in prices_data.items():
-                        if tid in token_map:
-                            _, outcome = token_map[tid]
-                            price = self._safe_float(
-                                price_value.get("BUY") if isinstance(price_value, dict) else price_value
-                            )
-                            if 0 < price < 1:
-                                outcome.decimal_odds = 1.0 / price
-                                outcome.implied_prob = price
-                                outcome.raw["clob_price"] = price
+                books = books_data if isinstance(books_data, list) else []
+                for book in books:
+                    if not isinstance(book, dict):
+                        continue
+                    tid = str(book.get("asset_id") or book.get("token_id") or "")
+                    if tid not in token_map:
+                        continue
+                    _, outcome = token_map[tid]
+                    levels = []
+                    for raw_level in book.get("asks") or []:
+                        if not isinstance(raw_level, dict):
+                            continue
+                        price = self._safe_float(raw_level.get("price"))
+                        size = self._safe_float(raw_level.get("size"))
+                        if 0 < price < 1 and size > 0:
+                            levels.append(OrderBookLevel(price=price, size=size))
+                    levels.sort(key=lambda level: level.price)
+                    if not levels:
+                        continue
+                    fetched_at = datetime.now(timezone.utc)
+                    outcome.ask_levels = levels
+                    outcome.decimal_odds = 1.0 / levels[0].price
+                    outcome.implied_prob = levels[0].price
+                    outcome.quote_fetched_at = fetched_at
+                    outcome.source_timestamp = self._parse_clob_timestamp(book.get("timestamp"))
+                    outcome.raw.update(
+                        {
+                            "clob_price": levels[0].price,
+                            "best_ask_size": levels[0].size,
+                            "book_hash": book.get("hash"),
+                            "minimum_order_size": self._safe_float(book.get("min_order_size")),
+                            "tick_size": self._safe_float(book.get("tick_size")),
+                        }
+                    )
             except Exception:
-                logger.debug("CLOB price enrichment failed for batch %d", i)
+                logger.exception("CLOB order-book enrichment failed for batch %d", i)
+
+    @staticmethod
+    def _parse_clob_timestamp(value: Any) -> datetime | None:
+        if value in (None, ""):
+            return None
+        try:
+            numeric = float(value)
+            if numeric > 10_000_000_000:
+                numeric /= 1000
+            return datetime.fromtimestamp(numeric, tz=timezone.utc)
+        except (TypeError, ValueError, OSError):
+            return PolymarketScraper._parse_datetime(str(value))
 
     @staticmethod
     def _market_fee_rate(market: dict[str, Any]) -> float:

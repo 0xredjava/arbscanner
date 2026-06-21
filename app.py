@@ -68,6 +68,7 @@ async def health() -> dict:
         "scanner_running": scan_service.is_running,
         "scan_interval_seconds": settings.refresh_interval_seconds,
         "enabled_platforms": settings.enabled_platforms,
+        "execution_safe_opportunities": settings.execution_safe_opportunities,
     }
 
 
@@ -87,13 +88,40 @@ async def latest_opportunities(
     sport: Annotated[str | None, Query()] = None,
     platform: Annotated[str | None, Query()] = None,
     min_profit: Annotated[float | None, Query(alias="minProfit")] = None,
+    country: Annotated[str | None, Query()] = None,
+    competition: Annotated[str | None, Query()] = None,
 ) -> dict:
     opportunities = await scan_service.latest_opportunities(
         sport=sport,
         platform=platform,
         min_profit=min_profit,
+        country=country,
+        competition=competition,
     )
     return {"opportunities": opportunities, "running": scan_service.is_running}
+
+
+@app.get("/api/opportunities/history")
+async def opportunity_history(
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> dict:
+    return {"opportunities": await scan_service.opportunity_history(limit=limit)}
+
+
+@app.get("/api/opportunities/{fingerprint}/observations")
+async def opportunity_observations(
+    fingerprint: str,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 500,
+) -> dict:
+    return {
+        "fingerprint": fingerprint,
+        "observations": await scan_service.opportunity_observations(fingerprint, limit=limit),
+    }
+
+
+@app.get("/api/coverage")
+async def coverage() -> dict:
+    return await scan_service.coverage()
 
 
 @app.get("/api/opportunities/closest")

@@ -74,3 +74,65 @@ create index if not exists idx_scan_runs_started_at on scan_runs(started_at desc
 create index if not exists idx_events_scan_id on events(scan_id);
 create index if not exists idx_events_event_key on events(event_key);
 create index if not exists idx_opportunities_scan_profit on opportunities(scan_id, profit_pct desc);
+
+-- Apply supabase/migrations/20260621020000_execution_safe_opportunities.sql
+-- to existing installations. The definitions below keep fresh installs aligned.
+alter table events
+  add column if not exists country text not null default 'International / unknown',
+  add column if not exists competition text not null default '',
+  add column if not exists quote_fetched_at timestamptz,
+  add column if not exists source_timestamp timestamptz;
+
+alter table opportunities
+  add column if not exists fingerprint text,
+  add column if not exists country text not null default 'International / unknown',
+  add column if not exists competition text not null default '',
+  add column if not exists start_time timestamptz,
+  add column if not exists last_verified_at timestamptz,
+  add column if not exists quote_expires_at timestamptz,
+  add column if not exists freshness_status text not null default 'unknown',
+  add column if not exists execution_safe boolean not null default false,
+  add column if not exists requested_bankroll numeric;
+
+create table if not exists opportunity_lifecycles (
+  fingerprint text primary key,
+  event_name text not null,
+  sport text not null,
+  country text not null default 'International / unknown',
+  competition text not null default '',
+  market_type text not null,
+  start_time timestamptz,
+  first_found_at timestamptz not null,
+  last_seen_at timestamptz not null,
+  last_verified_at timestamptz,
+  ended_at timestamptz,
+  end_reason text,
+  observation_count integer not null default 1,
+  latest_profit_pct numeric not null,
+  latest_total_stake numeric not null,
+  latest_payout numeric not null,
+  latest_state text not null,
+  latest_legs jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists opportunity_observations (
+  id bigint generated always as identity primary key,
+  scan_id uuid not null references scan_runs(id) on delete cascade,
+  fingerprint text not null references opportunity_lifecycles(fingerprint) on delete cascade,
+  observed_at timestamptz not null,
+  last_verified_at timestamptz,
+  quote_expires_at timestamptz,
+  state text not null,
+  profit_pct numeric not null,
+  total_stake numeric not null,
+  lowest_payout numeric not null,
+  legs jsonb not null,
+  calculation jsonb not null,
+  created_at timestamptz not null default now(),
+  unique(scan_id, fingerprint)
+);
+
+create index if not exists idx_opportunities_fingerprint on opportunities(fingerprint, detected_at desc);
+create index if not exists idx_opportunity_lifecycles_last_seen on opportunity_lifecycles(last_seen_at desc);
+create index if not exists idx_opportunity_observations_fingerprint_time on opportunity_observations(fingerprint, observed_at asc);

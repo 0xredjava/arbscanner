@@ -43,6 +43,9 @@ The API starts a background scan loop and exposes:
 - `GET /api/platforms`
 - `GET /api/scans/latest`
 - `GET /api/opportunities/latest?sport=nba&platform=cloudbet&minProfit=1`
+- `GET /api/opportunities/history`
+- `GET /api/opportunities/{fingerprint}/observations`
+- `GET /api/coverage`
 - `POST /api/scans/run` with `X-Admin-Token`
 
 ## Frontend Setup
@@ -67,8 +70,17 @@ The dashboard reads public scanner data and prompts for the admin token only whe
 - No production collector currently uses Playwright; Chromium is not installed in the image.
 - No account sessions, no cookies, no CAPTCHA bypass, no private keys.
 - v1 keeps only pre-match 2-way moneyline and 3-way soccer 1X2 markets.
+- Coverage is not Brazil-only: enabled sources are scanned worldwide for soccer,
+  NBA, tennis, NFL, NHL, and MLB markets, subject to each source's inventory.
+- Polymarket opportunities are sized from retained CLOB ask depth, contract
+  counts, taker fees, conservative cent rounding, and a final book refresh.
+- Opportunity observations are append-only and retain first-found, last-seen,
+  last-verified, quote expiry, calculation inputs, and end-state evidence.
 - Events with missing/past start times, duplicate outcome names, or invalid odds are rejected.
 - Platform health distinguishes `ok`, `empty`, `blocked`, `unavailable`, `degraded`, and `failed`.
+
+Apply all migrations in `supabase/migrations/`, including
+`20260621020000_execution_safe_opportunities.sql`, before deploying this version.
 
 ## Tests
 

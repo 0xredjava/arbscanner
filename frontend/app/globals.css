@@ -63,6 +63,33 @@ select {
   text-transform: uppercase;
 }
 
+.subtitle {
+  margin: 7px 0 0;
+  color: var(--muted);
+}
+
+.coverageBanner {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #99f6e4;
+  border-radius: 10px;
+  background: #f0fdfa;
+  color: var(--accent-strong);
+}
+
+.coverageBanner span,
+.guideTitle small,
+.bankrollControl small,
+.stepBody small,
+.historyRow small {
+  display: block;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
 h1 {
   margin: 0;
   font-size: 32px;
@@ -182,6 +209,91 @@ h1 {
   min-width: 0;
 }
 
+.panel,
+.opportunityCard,
+.historyPanel {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.opportunityCard {
+  overflow: hidden;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.opportunityCard.expired {
+  border-color: #fda29b;
+}
+
+.opportunitySummary {
+  width: 100%;
+  border: 0;
+  padding: 18px;
+  background: white;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.opportunitySummary h2 {
+  margin: 8px 0 4px;
+  font-size: 20px;
+}
+
+.opportunitySummary p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #eef2f6;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.statusPill.fresh { background: #dcfae6; color: var(--ok); }
+.statusPill.aging { background: #fef0c7; color: var(--warn); }
+.statusPill.expired,
+.statusPill.ended { background: #fee4e2; color: var(--danger); }
+
+.profitBlock {
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+.profitBlock small,
+.profitBlock span { display: block; color: var(--muted); }
+.profitBlock strong { display: block; color: var(--ok); font-size: 26px; }
+
+.timingStrip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--line);
+  background: #f9fafb;
+}
+
+.timingStrip span {
+  padding: 9px 18px;
+  color: var(--muted);
+  font-size: 12px;
+  border-right: 1px solid var(--line);
+}
+
+.timingStrip span:last-child { border-right: 0; }
+.timingStrip strong { display: block; margin-top: 2px; color: var(--text); }
+
 .health {
   width: 360px;
   flex: 0 0 360px;
@@ -280,10 +392,130 @@ h1 {
 }
 
 .details {
-  padding: 12px 14px 16px;
-  border-bottom: 1px solid var(--line);
+  padding: 18px;
+  border-top: 1px solid var(--line);
   background: #fcfcfd;
 }
+
+.expiredNotice,
+.inlineWarning {
+  color: var(--danger);
+  background: #fffbfa;
+  border: 1px solid #fecdca;
+  border-radius: 7px;
+  padding: 10px 12px;
+}
+
+.expiredNotice { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.inlineWarning { font-size: 13px; }
+
+.bankrollControl {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.bankrollControl label {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.bankrollControl input {
+  width: 130px;
+  margin-left: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.guideTitle {
+  margin: 22px 0 10px;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.betSteps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.betSteps li {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.stepNumber {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  color: white;
+  background: var(--accent);
+  font-weight: 800;
+}
+
+.stepBody { flex: 1; min-width: 0; }
+.stepBody p { margin: 10px 0; }
+.stepBody .legWarning { display: flex; align-items: flex-start; gap: 6px; color: var(--warn); font-size: 12px; }
+
+.stepHeading,
+.legFacts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.stepHeading span { color: var(--muted); }
+.stepHeading a { margin-left: auto; display: inline-flex; gap: 5px; align-items: center; color: var(--accent); text-decoration: none; }
+.legFacts { padding: 9px 10px; border-radius: 6px; background: #f2f4f7; font-size: 13px; }
+
+.outcomeMatrix,
+.checklist {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.outcomeMatrix h3,
+.checklist h3 { margin: 0 0 10px; font-size: 15px; }
+.outcomeMatrix > div { display: grid; grid-template-columns: 1fr 150px 120px; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.outcomeMatrix > div strong { text-align: right; }
+.checklist p { display: flex; align-items: center; gap: 8px; margin: 8px 0; color: #344054; }
+.checklist svg { color: var(--ok); flex: 0 0 auto; }
+
+.returns {
+  justify-content: space-between;
+  padding: 14px;
+  border-radius: 8px;
+  background: #ecfdf3;
+}
+
+.returns span > strong { display: block; margin-top: 3px; color: var(--text); }
+
+.historyPanel { margin-top: 24px; padding: 16px; }
+.historyRow { display: grid; grid-template-columns: minmax(220px, 1fr) 110px 220px 70px; gap: 12px; align-items: center; padding: 11px 0; border-top: 1px solid var(--line); }
+.historyRow > strong { text-align: right; color: var(--ok); }
+
+.closest { margin-top: 24px; text-align: left; }
+.closestItem { display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid var(--line); }
+.closestItem b { color: var(--muted); }
 
 .legs {
   display: grid;
@@ -429,4 +661,16 @@ h1 {
     align-items: flex-start;
     flex-direction: column;
   }
+
+  .coverageBanner,
+  .opportunitySummary,
+  .bankrollControl { align-items: flex-start; flex-direction: column; }
+  .profitBlock { text-align: left; }
+  .timingStrip { grid-template-columns: 1fr; }
+  .timingStrip span { border-right: 0; border-bottom: 1px solid var(--line); }
+  .outcomeMatrix > div,
+  .historyRow { grid-template-columns: 1fr; }
+  .outcomeMatrix > div strong,
+  .historyRow > strong { text-align: left; }
+  .stepHeading a { margin-left: 0; }
 }

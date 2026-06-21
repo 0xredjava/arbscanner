@@ -66,6 +66,11 @@ class OddsNormalizer:
                     event_id=event.event_id,
                     selection_id=outcome.selection_id,
                     token_id=outcome.token_id,
+                    country=event.country,
+                    competition=event.competition,
+                    quote_fetched_at=outcome.quote_fetched_at,
+                    source_timestamp=outcome.source_timestamp,
+                    ask_levels=list(outcome.ask_levels),
                 )
             )
         return records
