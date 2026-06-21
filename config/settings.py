@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # General
     log_level: str = "INFO"
     refresh_interval_seconds: int = Field(default=60, validation_alias="SCAN_INTERVAL_SECONDS")
+    max_event_horizon_days: int = 14
     min_profit_pct: float = 2.0
     default_bankroll: float = 1000.0
     admin_token: str = ""
@@ -43,16 +44,21 @@ class Settings(BaseSettings):
     the_odds_api_key: str = ""
     the_odds_api_url: str = "https://api.the-odds-api.com/v4"
 
-    # Cloudbet (public, no key required for odds)
+    # Cloudbet Feed API (official key required)
     cloudbet_api_url: str = "https://sports-api.cloudbet.com/pub/v2"
+    cloudbet_api_key: str = ""
+
+    # Public sportsbook feeds discovered and verified in SOURCE_DECISIONS.md
+    bcgame_feed_url: str = "https://api-k-c7818b61-623.sptpub.com"
+    bcgame_brand_id: str = "2103509236163162112"
+    tgcasino_feed_url: str = "https://api-a-c7818b61-600.sptpub.com"
+    tgcasino_brand_id: str = "2352178356470026240"
+    shuffle_sports_graphql_url: str = "https://shuffle.com/main-api/graphql/sports/graphql-sports"
+    thunderpick_api_url: str = "https://thunderpick.io/api"
 
     # Supabase persistence
     supabase_url: str = ""
     supabase_service_role_key: str = ""
-
-    # Server-side browser fallback. Proxies and logged-in sessions are intentionally unsupported.
-    use_playwright_headless: bool = True
-    playwright_timeout_ms: int = 30000
 
     # Platform toggles
     enable_polymarket: bool = True

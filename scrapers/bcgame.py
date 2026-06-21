@@ -1,21 +1,15 @@
-"""BC.Game sports scraper."""
+"""BC.Game public sportsbook-provider API adapter."""
 
-from __future__ import annotations
-
-from typing import Any
-
-from models.odds import Platform, ScrapedEvent
-from scrapers.playwright_base import PlaywrightScraper, parse_generic_odds_json
+from models.odds import Platform
+from scrapers.spt_feed import SptFeedScraper
 
 
-class BCGameScraper(PlaywrightScraper):
+class BCGameScraper(SptFeedScraper):
     platform = Platform.BCGAME
     fee_pct = 1.0
-    base_url = "https://bc.game/sports"
-    api_patterns = ["/api/", "/sports/", "/odds"]
+    public_url = "https://bc.game/sports/event"
 
-    def _parse_intercepted(self, captured: list[dict[str, Any]]) -> list[ScrapedEvent]:
-        events: list[ScrapedEvent] = []
-        for entry in captured:
-            events.extend(parse_generic_odds_json(entry["data"], Platform.BCGAME))
-        return events
+    def __init__(self, settings, http, proxy_rotator) -> None:
+        super().__init__(settings, http, proxy_rotator)
+        self.feed_url = settings.bcgame_feed_url
+        self.brand_id = settings.bcgame_brand_id

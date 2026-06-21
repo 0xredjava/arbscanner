@@ -8,6 +8,12 @@ Production v1 for a public-data, pre-match moneyline arbitrage scanner.
 - **Markets:** pre-match moneyline only.
 - **Platforms:** Stake.com, BC.Game, Shuffle.com, Cloudbet, TG.Casino, Thunderpick, Polymarket.
 
+Current source choices and verification evidence are documented in
+[SOURCE_DECISIONS.md](SOURCE_DECISIONS.md). BC.Game, Shuffle, TG.Casino,
+Thunderpick, and Polymarket use public structured APIs. Cloudbet requires an
+official Feed API key. Stake is reported unavailable because its public page is
+challenge-blocked and its documented API requires a logged-in session.
+
 This project intentionally does **not** support wallets, private keys, logged-in cookies, live betting, or proxy bypassing. If a platform blocks public/no-login access, it is reported as unavailable.
 
 ## Backend Setup
@@ -26,6 +32,7 @@ Apply `supabase_schema.sql` in Supabase SQL editor, then set Railway variables:
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 ADMIN_TOKEN=
+CLOUDBET_API_KEY=
 SCAN_INTERVAL_SECONDS=60
 CORS_ORIGINS=https://your-vercel-domain.vercel.app
 ```
@@ -57,9 +64,11 @@ The dashboard reads public scanner data and prompts for the admin token only whe
 ## Scanner Rules
 
 - Public APIs or unauthenticated JSON endpoints are preferred.
-- Server-side Playwright response interception is allowed as a fallback.
+- No production collector currently uses Playwright; Chromium is not installed in the image.
 - No account sessions, no cookies, no CAPTCHA bypass, no private keys.
 - v1 keeps only pre-match 2-way moneyline and 3-way soccer 1X2 markets.
+- Events with missing/past start times, duplicate outcome names, or invalid odds are rejected.
+- Platform health distinguishes `ok`, `empty`, `blocked`, `unavailable`, `degraded`, and `failed`.
 
 ## Tests
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+import httpx
 
 from calculator.arb_calculator import ArbCalculator
 from config.settings import Settings
@@ -13,6 +15,7 @@ from matcher.event_matcher import EventMatcher
 from models.odds import ArbitrageOpportunity, NormalizedOdds, ScrapedEvent, Sport
 from normalizer.odds_normalizer import OddsNormalizer
 from notifier.console import ConsoleNotifier
+from scrapers.base import SourceStatusError
 from scrapers.registry import build_scrapers
 
 logger = logging.getLogger("arb_scanner.orchestrator")
@@ -42,6 +45,7 @@ class ArbOrchestrator:
         self._latest_events: list[ScrapedEvent] = []
         self._latest_normalized: list[NormalizedOdds] = []
         self._latest_platform_statuses: list[dict] = []
+        self._platform_last_success: dict[str, str] = {}
 
     @property
     def latest_opportunities(self) -> list[ArbitrageOpportunity]:
@@ -106,20 +110,51 @@ class ArbOrchestrator:
 
     async def _fetch_platform(self, scraper) -> tuple[list[ScrapedEvent], dict]:
         started = datetime.now(timezone.utc)
+        platform = scraper.platform.value
+        scraper.response_count = 0
+        scraper.data_timestamp = None
+        scraper.degraded_reason = None
         status = {
-            "platform": scraper.platform.value,
-            "status": "ok",
+            "platform": platform,
+            "status": "empty",
+            "source_type": getattr(scraper, "source_type", "api"),
             "fetch_method": getattr(scraper, "fetch_method", "api"),
             "event_count": 0,
-            "last_success_at": None,
+            "response_count": 0,
+            "last_success_at": self._platform_last_success.get(platform),
             "last_error": None,
+            "data_timestamp": None,
         }
         try:
-            events = await scraper.fetch_events()
+            events = self._filter_moneyline_events(await scraper.fetch_events())
             status["event_count"] = len(events)
-            status["last_success_at"] = datetime.now(timezone.utc).isoformat()
+            status["response_count"] = scraper.response_count
+            if scraper.data_timestamp:
+                status["data_timestamp"] = scraper.data_timestamp.isoformat()
+                age_seconds = (datetime.now(timezone.utc) - scraper.data_timestamp).total_seconds()
+                if age_seconds > max(self.settings.refresh_interval_seconds * 2, 300):
+                    scraper.degraded_reason = f"Source data is stale by {int(age_seconds)} seconds"
+            if events:
+                status["status"] = "degraded" if scraper.degraded_reason else "ok"
+                now = datetime.now(timezone.utc).isoformat()
+                status["last_success_at"] = now
+                self._platform_last_success[platform] = now
+                status["last_error"] = scraper.degraded_reason
             logger.info("Fetched %d events from %s", len(events), scraper.platform.value)
             return events, status
+        except SourceStatusError as exc:
+            status["status"] = exc.status
+            status["last_error"] = str(exc)
+            status["response_count"] = scraper.response_count
+            logger.warning("Source %s is %s: %s", platform, exc.status, exc)
+            return [], status
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            status["status"] = "blocked" if code == 403 else "unavailable" if code == 401 else "failed"
+            status["last_error"] = f"HTTP {code} from selected source"
+            status["response_count"] = scraper.response_count
+            logger.warning("HTTP %s from %s", code, platform)
+            return [], status
         except Exception as exc:
             status["status"] = "failed"
             status["last_error"] = str(exc)
@@ -130,10 +165,26 @@ class ArbOrchestrator:
 
     def _filter_moneyline_events(self, events: list[ScrapedEvent]) -> list[ScrapedEvent]:
         filtered: list[ScrapedEvent] = []
+        now = datetime.now(timezone.utc)
+        horizon = now + timedelta(days=self.settings.max_event_horizon_days)
         for event in events:
             if event.is_live:
                 continue
+            if event.start_time is None:
+                continue
+            start_time = event.start_time
+            if start_time.tzinfo is None:
+                start_time = start_time.replace(tzinfo=timezone.utc)
+            if start_time <= now:
+                continue
+            if start_time > horizon:
+                continue
             if event.market_type not in ("moneyline", "1x2", "prediction"):
+                continue
+            names = [outcome.name.strip().casefold() for outcome in event.outcomes]
+            if any(not name for name in names) or len(names) != len(set(names)):
+                continue
+            if any(outcome.decimal_odds <= 1 for outcome in event.outcomes):
                 continue
             outcome_count = len(event.outcomes)
             if outcome_count == 2:

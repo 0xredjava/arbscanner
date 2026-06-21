@@ -20,9 +20,12 @@ create table if not exists platform_status (
   enabled boolean not null default true,
   status text not null,
   fetch_method text not null,
+  source_type text not null default 'unknown',
   event_count integer not null default 0,
+  response_count integer not null default 0,
   duration_ms integer not null default 0,
   last_success_at timestamptz,
+  data_timestamp timestamptz,
   last_error text,
   updated_at timestamptz not null default now()
 );

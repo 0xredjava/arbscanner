@@ -65,11 +65,25 @@ class AsyncHttpClient:
         json: dict[str, Any] | list[Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
-        proxy = self.proxy_rotator.next() if self.proxy_rotator else None
-        kwargs: dict[str, Any] = {"timeout": self.timeout}
-        if proxy:
-            kwargs["proxy"] = proxy
-        async with httpx.AsyncClient(**kwargs) as client:
-            response = await client.post(url, json=json, headers=headers)
-            response.raise_for_status()
-            return response.json()
+        last_error: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            proxy = self.proxy_rotator.next() if self.proxy_rotator else None
+            kwargs: dict[str, Any] = {"timeout": self.timeout, "follow_redirects": True}
+            if proxy:
+                kwargs["proxy"] = proxy
+            try:
+                async with httpx.AsyncClient(**kwargs) as client:
+                    response = await client.post(url, json=json, headers=headers)
+                    if response.status_code == 429:
+                        retry_after = response.headers.get("retry-after")
+                        wait = min(float(retry_after) if retry_after else 2**attempt, 30)
+                        logger.warning("Rate limited on %s, waiting %ss", url, wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    response.raise_for_status()
+                    return response.json()
+            except (httpx.RequestError, httpx.TimeoutException) as exc:
+                last_error = exc
+                logger.warning("Request error for %s (attempt %d): %s", url, attempt, exc)
+                await asyncio.sleep(attempt)
+        raise RuntimeError(f"Failed after {self.max_retries} attempts: {url}") from last_error

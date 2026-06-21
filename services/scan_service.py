@@ -84,9 +84,17 @@ class ScanService:
             }
 
             scan_id = await self.store.create_scan_run(scan_payload)
+            previous_statuses = await self.store.latest_platforms()
+            previous_success = {
+                item.get("platform"): item.get("last_success_at")
+                for item in previous_statuses
+                if item.get("platform") and item.get("last_success_at")
+            }
             statuses = [
                 {
                     **platform,
+                    "last_success_at": platform.get("last_success_at")
+                    or previous_success.get(platform["platform"]),
                     "scan_id": scan_id,
                     "enabled": platform["platform"] in self.settings.enabled_platforms,
                     "updated_at": finished.isoformat(),
@@ -123,7 +131,11 @@ class ScanService:
                 "enabled": True,
                 "status": "pending",
                 "fetch_method": "unknown",
+                "source_type": "unknown",
                 "event_count": 0,
+                "response_count": 0,
+                "last_success_at": None,
+                "data_timestamp": None,
                 "last_error": None,
             }
             for platform in self.settings.enabled_platforms

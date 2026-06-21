@@ -1,0 +1,22 @@
+{
+  "event_id": "2680306311459123211",
+  "event": {
+    "desc": {
+      "scheduled": 1800000000,
+      "type": "match",
+      "virtual": false,
+      "slug": "annapolis-blues-virginia-beach",
+      "sport": "1",
+      "tournament": "2151420985897791492",
+      "competitors": [
+        {"name": "Annapolis Blues FC"},
+        {"name": "Virginia Beach United FC"}
+      ]
+    },
+    "markets": {
+      "1": {"": {"1": {"k": "2.42"}, "2": {"k": "3.20"}, "3": {"k": "2.66"}}}
+    },
+    "state": {"provider": "public-provider", "status": 0, "match_status": 0}
+  },
+  "tournaments": {"2151420985897791492": {"name": "USL League Two"}}
+}

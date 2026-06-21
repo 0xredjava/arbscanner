@@ -34,8 +34,12 @@ type PlatformStatus = {
   enabled: boolean;
   status: string;
   fetch_method: string;
+  source_type?: string;
   event_count: number;
+  response_count?: number;
   last_error?: string | null;
+  last_success_at?: string | null;
+  data_timestamp?: string | null;
   updated_at?: string;
 };
 
@@ -121,8 +125,7 @@ export default function Dashboard() {
 
   const totals = useMemo(() => {
     const ok = platforms.filter((item) => item.status === "ok").length;
-    const failed = platforms.filter((item) => item.status === "failed").length;
-    return { ok, failed };
+    return { ok };
   }, [platforms]);
 
   return (
@@ -214,7 +217,9 @@ export default function Dashboard() {
             <div className="platform" key={item.platform}>
               <div>
                 <strong>{item.platform}</strong>
-                <small>{item.fetch_method} - {item.event_count || 0} events</small>
+                <small>{item.source_type || item.fetch_method} - {item.event_count || 0} events</small>
+                <small>{item.last_success_at ? `Last success ${new Date(item.last_success_at).toLocaleString()}` : "No successful collection yet"}</small>
+                {item.data_timestamp ? <small>Odds timestamp {new Date(item.data_timestamp).toLocaleString()}</small> : null}
               </div>
               <span className={`badge ${item.status}`}>{item.status}</span>
               {item.last_error ? <p>{item.last_error}</p> : null}

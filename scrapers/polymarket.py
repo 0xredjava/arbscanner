@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from config.settings import Settings
@@ -34,6 +34,15 @@ SPORT_TAG_MAP: dict[str, Sport] = {
     "esports": Sport.ESPORTS,
 }
 
+SPORT_TAGS: dict[str, tuple[int, Sport]] = {
+    "soccer": (100350, Sport.SOCCER),
+    "nba": (745, Sport.NBA),
+    "nfl": (450, Sport.NFL),
+    "nhl": (899, Sport.NHL),
+    "mlb": (100381, Sport.MLB),
+    "tennis": (864, Sport.TENNIS),
+}
+
 SPORT_KEYWORDS: dict[Sport, list[str]] = {
     Sport.SOCCER: ["soccer", "premier league", "la liga", "bundesliga", "serie a", "mls", "champions league"],
     Sport.NBA: ["nba", "basketball"],
@@ -47,6 +56,7 @@ SPORT_KEYWORDS: dict[Sport, list[str]] = {
 class PolymarketScraper(BaseScraper):
     platform = Platform.POLYMARKET
     fee_pct = 0.0  # Polymarket has no traditional vig; spread is in the book
+    source_type = "api"
 
     def __init__(
         self,
@@ -60,35 +70,43 @@ class PolymarketScraper(BaseScraper):
 
     async def fetch_events(self) -> list[ScrapedEvent]:
         events: list[ScrapedEvent] = []
-        watched = set(self.settings.sports_list)
-
-        # Strategy 1: Sports-tagged events via Gamma
-        sports_meta = await self._fetch_sports_metadata()
-        for sport_entry in sports_meta:
-            tag_id = sport_entry.get("id") or sport_entry.get("tag_id")
-            sport_key = (sport_entry.get("sport") or sport_entry.get("slug") or "").lower()
-            if sport_key not in watched and not any(k in sport_key for k in watched):
+        for watched in self.settings.sports_list:
+            config = SPORT_TAGS.get(watched)
+            if not config:
                 continue
-            sport = SPORT_TAG_MAP.get(sport_key, self._infer_sport(sport_entry))
-            if tag_id:
-                gamma_events = await self._fetch_events_by_tag(tag_id)
-                for ge in gamma_events:
-                    parsed = self._parse_gamma_event(ge, sport)
-                    events.extend(parsed)
-
-        # Strategy 2: High-volume active events (catches non-sports-tagged markets)
-        if len(events) < 10:
-            all_active = await self._fetch_active_events(limit=100)
-            for ge in all_active:
-                sport = self._infer_sport_from_text(ge.get("title", "") + " " + ge.get("description", ""))
-                if sport.value not in watched and Sport.OTHER.value not in watched:
-                    continue
-                parsed = self._parse_gamma_event(ge, sport)
-                events.extend(parsed)
-
-        # Enrich with CLOB orderbook prices where available
+            for raw in await self._fetch_events_keyset(config[0]):
+                parsed = self._parse_gamma_event(raw, config[1])
+                if parsed:
+                    events.append(parsed)
+        events = list({event.event_id: event for event in events}.values())
         await self._enrich_with_clob_prices(events)
         return events
+
+    async def _fetch_events_keyset(self, tag_id: int) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        cursor: str | None = None
+        for page in range(5):
+            now = datetime.now(timezone.utc)
+            params: dict[str, Any] = {
+                "tag_id": tag_id,
+                "closed": "false",
+                "limit": 500,
+                "start_time_min": now.isoformat(),
+                "start_time_max": (now + timedelta(days=self.settings.max_event_horizon_days)).isoformat(),
+            }
+            if cursor:
+                params["after_cursor"] = cursor
+            data = await self.http.get(f"{self.gamma_url}/events/keyset", params=params)
+            self.response_count += 1
+            if not isinstance(data, dict) or not isinstance(data.get("events"), list):
+                break
+            results.extend(item for item in data["events"] if isinstance(item, dict))
+            cursor = data.get("next_cursor")
+            if not cursor:
+                break
+            if page == 4:
+                self.degraded_reason = f"Polymarket tag {tag_id} exceeded five keyset pages"
+        return results
 
     async def _fetch_sports_metadata(self) -> list[dict[str, Any]]:
         try:
@@ -121,63 +139,74 @@ class PolymarketScraper(BaseScraper):
         data = await self.http.get(f"{self.gamma_url}/events", params=params)
         return data if isinstance(data, list) else []
 
-    def _parse_gamma_event(self, event: dict[str, Any], sport: Sport) -> list[ScrapedEvent]:
-        results: list[ScrapedEvent] = []
+    def _parse_gamma_event(self, event: dict[str, Any], sport: Sport) -> ScrapedEvent | None:
         markets = event.get("markets") or []
         title = event.get("title") or ""
         slug = event.get("slug") or event.get("id", "")
-        start_time = self._parse_datetime(event.get("startDate") or event.get("start_date"))
         url = f"https://polymarket.com/event/{slug}"
-
+        home, away = self._extract_teams(title, [])
+        if not home or not away:
+            return None
+        market_outcomes: list[MarketOutcome] = []
+        start_time = None
         for market in markets:
-            if market.get("closed") or not market.get("active", True):
+            if not isinstance(market, dict) or market.get("closed") or not market.get("active", True):
+                continue
+            if market.get("sportsMarketType") not in (None, "moneyline") or market.get("acceptingOrders") is False:
                 continue
             outcomes, prices = self._parse_outcomes_prices(market)
-            if not outcomes:
-                continue
-
             token_ids = self._parse_token_ids(market)
-            home, away = self._extract_teams(title, outcomes)
-
-            market_outcomes: list[MarketOutcome] = []
-            for i, (outcome_name, price) in enumerate(zip(outcomes, prices)):
-                if price <= 0 or price >= 1:
-                    continue
-                decimal_odds = 1.0 / price
-                token_id = token_ids[i] if i < len(token_ids) else None
-                market_outcomes.append(
-                    MarketOutcome(
-                        name=outcome_name,
-                        decimal_odds=decimal_odds,
-                        implied_prob=price,
-                        liquidity_usd=self._safe_float(market.get("liquidity")),
-                        token_id=token_id,
-                        selection_id=str(market.get("id", "")),
-                        url=url,
-                        raw={"gamma_price": price, "market": market},
-                    )
-                )
-
-            if not market_outcomes:
+            if not outcomes or len(outcomes) != len(prices):
                 continue
-
-            results.append(
-                ScrapedEvent(
-                    platform=Platform.POLYMARKET,
-                    sport=sport,
-                    event_id=str(market.get("id") or event.get("id")),
-                    home_team=home,
-                    away_team=away,
-                    league=event.get("seriesSlug") or sport.value,
-                    start_time=start_time,
-                    market_type=self._detect_market_type(title, outcomes),
-                    outcomes=market_outcomes,
+            try:
+                yes_index = [str(x).lower() for x in outcomes].index("yes")
+            except ValueError:
+                continue
+            group = str(market.get("groupItemTitle") or "")
+            if group.lower().startswith("draw"):
+                name = "Draw"
+            elif group.casefold() == home.casefold():
+                name = home
+            elif group.casefold() == away.casefold():
+                name = away
+            else:
+                continue
+            price = prices[yes_index]
+            if not 0 < price < 1:
+                continue
+            market_outcomes.append(
+                MarketOutcome(
+                    name=name,
+                    decimal_odds=1.0 / price,
+                    implied_prob=price,
+                    liquidity_usd=self._safe_float(market.get("liquidity")),
+                    token_id=token_ids[yes_index] if yes_index < len(token_ids) else None,
+                    selection_id=str(market.get("id") or ""),
                     url=url,
-                    is_live=event.get("live", False),
-                    raw={"event": event, "market": market},
+                    raw={"gamma_price": price},
                 )
             )
-        return results
+            start_time = start_time or self._parse_datetime(
+                market.get("gameStartTime") or market.get("eventStartTime")
+            )
+        expected = 3 if any(x.name == "Draw" for x in market_outcomes) else 2
+        unique = {x.name.casefold(): x for x in market_outcomes}
+        if len(unique) != expected or home.casefold() not in unique or away.casefold() not in unique:
+            return None
+        return ScrapedEvent(
+            platform=Platform.POLYMARKET,
+            sport=sport,
+            event_id=str(event.get("id") or slug),
+            home_team=home,
+            away_team=away,
+            league=event.get("seriesSlug") or sport.value,
+            start_time=start_time,
+            market_type="1x2" if expected == 3 else "moneyline",
+            outcomes=list(unique.values()),
+            url=url,
+            is_live=bool(event.get("live")),
+            raw={"game_id": event.get("gameId")},
+        )
 
     async def _enrich_with_clob_prices(self, events: list[ScrapedEvent]) -> None:
         """Fetch best ask prices from CLOB for more accurate executable odds."""
@@ -197,13 +226,16 @@ class PolymarketScraper(BaseScraper):
         for i in range(0, len(token_ids), batch_size):
             batch = token_ids[i : i + batch_size]
             try:
-                body = [{"token_id": tid, "side": "BUY"} for tid in batch]
+                body = [{"token_id": tid, "side": "SELL"} for tid in batch]
                 prices_data = await self.http.post(f"{self.clob_url}/prices", json=body)
+                self.response_count += 1
                 if isinstance(prices_data, dict):
-                    for tid, price_str in prices_data.items():
+                    for tid, price_value in prices_data.items():
                         if tid in token_map:
                             _, outcome = token_map[tid]
-                            price = self._safe_float(price_str)
+                            price = self._safe_float(
+                                price_value.get("SELL") if isinstance(price_value, dict) else price_value
+                            )
                             if 0 < price < 1:
                                 outcome.decimal_odds = 1.0 / price
                                 outcome.implied_prob = price
@@ -215,22 +247,22 @@ class PolymarketScraper(BaseScraper):
     def _parse_outcomes_prices(market: dict[str, Any]) -> tuple[list[str], list[float]]:
         outcomes_raw = market.get("outcomes", "[]")
         prices_raw = market.get("outcomePrices", "[]")
-        if isinstance(outcomes_raw, str):
-            outcomes = json.loads(outcomes_raw)
-        else:
-            outcomes = outcomes_raw or []
-        if isinstance(prices_raw, str):
-            prices = [float(p) for p in json.loads(prices_raw)]
-        else:
-            prices = [float(p) for p in (prices_raw or [])]
-        return list(outcomes), prices
+        try:
+            outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw or []
+            raw_prices = json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw or []
+            return list(outcomes), [float(p) for p in raw_prices]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return [], []
 
     @staticmethod
     def _parse_token_ids(market: dict[str, Any]) -> list[str]:
         clob_ids = market.get("clobTokenIds", "[]")
-        if isinstance(clob_ids, str):
-            return json.loads(clob_ids)
-        return list(clob_ids or [])
+        try:
+            if isinstance(clob_ids, str):
+                return json.loads(clob_ids)
+            return list(clob_ids or [])
+        except (json.JSONDecodeError, TypeError):
+            return []
 
     @staticmethod
     def _parse_datetime(value: str | None) -> datetime | None:

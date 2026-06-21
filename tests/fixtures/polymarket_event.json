@@ -1,0 +1,11 @@
+{
+  "id": "202605",
+  "slug": "new-england-revolution-vs-houston-dynamo",
+  "title": "New England Revolution vs. Houston Dynamo",
+  "gameId": 90104115,
+  "markets": [
+    {"id": "home-market", "groupItemTitle": "New England Revolution", "outcomes": "[\"Yes\", \"No\"]", "outcomePrices": "[\"0.46\", \"0.54\"]", "clobTokenIds": "[\"home-yes\", \"home-no\"]", "sportsMarketType": "moneyline", "gameStartTime": "2027-08-08 20:30:00+00", "active": true, "closed": false, "acceptingOrders": true},
+    {"id": "away-market", "groupItemTitle": "Houston Dynamo", "outcomes": "[\"Yes\", \"No\"]", "outcomePrices": "[\"0.27\", \"0.73\"]", "clobTokenIds": "[\"away-yes\", \"away-no\"]", "sportsMarketType": "moneyline", "gameStartTime": "2027-08-08 20:30:00+00", "active": true, "closed": false, "acceptingOrders": true},
+    {"id": "draw-market", "groupItemTitle": "Draw (New England Revolution vs. Houston Dynamo)", "outcomes": "[\"Yes\", \"No\"]", "outcomePrices": "[\"0.435\", \"0.565\"]", "clobTokenIds": "[\"draw-yes\", \"draw-no\"]", "sportsMarketType": "moneyline", "gameStartTime": "2027-08-08 20:30:00+00", "active": true, "closed": false, "acceptingOrders": true}
+  ]
+}

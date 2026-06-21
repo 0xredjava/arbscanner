@@ -1,0 +1,39 @@
+{
+  "nodes": [
+    {
+      "id": "competition-1",
+      "slug": "16-world-cup",
+      "name": "World Cup",
+      "category": {"sports": "SOCCER", "slug": "4-international"},
+      "fixtures": {"nodes": [
+        {
+          "id": "fixture-1",
+          "slug": "spain-saudi-arabia",
+          "startTime": "2027-06-21T16:00:00.000Z",
+          "provider": "BETRADAR",
+          "status": "PREMATCH",
+          "competitors": [
+            {"displayName": "Saudi Arabia", "isHome": false},
+            {"displayName": "Spain", "isHome": true}
+          ],
+          "defaultMarketsInfo": {"defaultMarket": {
+            "odds": [{
+              "id": "market-1", "inPlay": false, "status": "OPEN",
+              "selections": [
+                {"id": "away", "oddsNumerator": "2700", "oddsDenominator": "100", "status": "TRADING"},
+                {"id": "home", "oddsNumerator": "10", "oddsDenominator": "100", "status": "TRADING"},
+                {"id": "draw", "oddsNumerator": "1000", "oddsDenominator": "100", "status": "TRADING"}
+              ]
+            }],
+            "display": {"typeId": "1", "selectionGroups": [{"selections": [
+              {"id": "away", "fullName": "Saudi Arabia"},
+              {"id": "home", "fullName": "Spain"},
+              {"id": "draw", "fullName": "Draw"}
+            ]}]}
+          }}
+        }
+      ]}
+    }
+  ],
+  "nextCursor": null
+}

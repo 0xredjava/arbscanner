@@ -1,0 +1,24 @@
+{
+  "events": [
+    {
+      "id": 6473660,
+      "home": {"name": "Miami Heat"},
+      "away": {"name": "Los Angeles Lakers"},
+      "competition": {"name": "NBA"},
+      "status": "TRADING",
+      "startTime": "2027-04-08T23:30:00Z",
+      "markets": {
+        "basketball.moneyline": {
+          "submarkets": {
+            "period=ot&period=ft": {
+              "selections": [
+                {"outcome": "home", "price": 1.91, "status": "SELECTION_ENABLED", "side": "BACK"},
+                {"outcome": "away", "price": 2.05, "status": "SELECTION_ENABLED", "side": "BACK"}
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

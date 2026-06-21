@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import abc
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from models.odds import Platform, ScrapedEvent
@@ -16,10 +17,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger("arb_scanner.scrapers")
 
 
+class SourceStatusError(RuntimeError):
+    """A known source condition that should not be reported as a parser failure."""
+
+    def __init__(self, status: str, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class BaseScraper(abc.ABC):
     platform: Platform
     fee_pct: float = 2.0
     fetch_method: str = "api"
+    source_type: str = "api"
 
     def __init__(
         self,
@@ -31,6 +41,9 @@ class BaseScraper(abc.ABC):
         self.http = http
         self.proxy_rotator = proxy_rotator
         self.logger = logging.getLogger(f"arb_scanner.scrapers.{self.platform.value}")
+        self.response_count = 0
+        self.data_timestamp: datetime | None = None
+        self.degraded_reason: str | None = None
 
     @abc.abstractmethod
     async def fetch_events(self) -> list[ScrapedEvent]:

@@ -1,21 +1,15 @@
-"""TG.Casino sports scraper."""
+"""TG.Casino public sportsbook-provider API adapter."""
 
-from __future__ import annotations
-
-from typing import Any
-
-from models.odds import Platform, ScrapedEvent
-from scrapers.playwright_base import PlaywrightScraper, parse_generic_odds_json
+from models.odds import Platform
+from scrapers.spt_feed import SptFeedScraper
 
 
-class TGCasinoScraper(PlaywrightScraper):
+class TGCasinoScraper(SptFeedScraper):
     platform = Platform.TGCASINO
     fee_pct = 2.0
-    base_url = "https://tg.casino/sports"
-    api_patterns = ["/api/", "/sports/", "/odds"]
+    public_url = "https://www.tg.casino/sports/event"
 
-    def _parse_intercepted(self, captured: list[dict[str, Any]]) -> list[ScrapedEvent]:
-        events: list[ScrapedEvent] = []
-        for entry in captured:
-            events.extend(parse_generic_odds_json(entry["data"], Platform.TGCASINO))
-        return events
+    def __init__(self, settings, http, proxy_rotator) -> None:
+        super().__init__(settings, http, proxy_rotator)
+        self.feed_url = settings.tgcasino_feed_url
+        self.brand_id = settings.tgcasino_brand_id
