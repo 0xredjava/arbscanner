@@ -1,3 +1,6 @@
 [deploy]
 healthcheckPath = "/api/health"
 healthcheckTimeout = 300
+
+[deploy.multiRegionConfig."asia-southeast1-eqsg3a"]
+numReplicas = 1
